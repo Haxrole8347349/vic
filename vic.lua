@@ -84,6 +84,9 @@ end
 
 local config = _G.ViciousBeeConfig
 
+-- ✅ RESET HOPPING LOCK ON SCRIPT START (prevents lock persistence after teleport)
+config._isCurrentlyHopping = false
+
 config.WEBHOOK_URL = config.WEBHOOK_URL or "https://discord.com/api/webhooks/1456640369801429155/whXmluN3paYc-mMltkKNNJObdzOue1hZvUC72fnCR7x_KTaw4CM2fdSVZZOp6Nvv9ZVu"
 config.PC_SERVER_URL = config.PC_SERVER_URL or "https://flora-kenogenetic-leslee.ngrok-free.dev/log"
 config.WEBHOOK_SECRET = config.WEBHOOK_SECRET or "uupcRwDaCaz0kzxPnibqIbMdNNd1r753oUdS8H8akx8"
@@ -728,7 +731,7 @@ local function setupAutoReconnect()
             -- If rejoin fails, find a new low-pop server
             config._totalHopAttempts = 0
             task.wait(4)
-            serverHopIfCrowded()  -- This will find a new server
+              -- This will find a new server
         end
     end
     
@@ -836,10 +839,10 @@ local function serverHopIfCrowded()
     
     local currentPlayers = getPlayerCount()
     
-    -- Only hop if MORE than 2 players
+    -- Only hop if MORE than 3 players
     if currentPlayers <= 3 then
         print(string.format("✅ Server OK: %d players (under limit)", currentPlayers))
-        config._isCurrentlyHopping = false  -- ← Reset lock before returning
+        config._isCurrentlyHopping = false  -- Reset lock before returning
         return
     end
     
@@ -858,7 +861,8 @@ local function serverHopIfCrowded()
             
             if config._totalHopAttempts >= config.MAX_HOP_ATTEMPTS then
                 warn("🛑 STOPPED: Max hop attempts reached")
-                config._isCurrentlyHopping = false  -- ← Reset lock
+                config._isCurrentlyHopping = false  -- Reset lock
+                hopping = false
                 return
             end
             
@@ -867,7 +871,7 @@ local function serverHopIfCrowded()
             if currentPlayers <= 3 then
                 print("✅ Player count dropped to acceptable level!")
                 hopping = false
-                config._isCurrentlyHopping = false  -- ← Reset lock
+                config._isCurrentlyHopping = false  -- Reset lock
                 return
             end
             
@@ -954,12 +958,12 @@ local function serverHopIfCrowded()
             task.wait(3)
         end
         
+        -- Exhausted attempts
         warn(string.format("⚠️ Could not find suitable server after %d attempts", maxAttempts))
         hopping = false
-        config._isCurrentlyHopping = false  -- ← Reset lock
+        config._isCurrentlyHopping = false  -- Reset lock
     end)
 end
-
 
 local function createGUI()
     if CoreGui:FindFirstChild("ViciousBeeHunterGUI") then
