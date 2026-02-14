@@ -1490,12 +1490,26 @@ sendWebhook(
     }
 )
 
--- ✅ ONE-TIME STARTUP CHECK (only hops once at script start if crowded)
+-- ✅ ONE-TIME STARTUP CHECK with BOT DETECTION
 task.spawn(function()
     task.wait(5)  -- Initial delay for script to fully load
     
     print("🔍 Performing ONE-TIME startup server check...")
     
+    -- ✅ FIRST: Check for other bots
+    local botCount, botNames = detectOtherBots()
+    
+    if botCount > 0 then
+        print(string.format("⚠️ FOUND %d OTHER BOT(S) IN SERVER!", botCount))
+        for _, name in ipairs(botNames) do
+            print(string.format("   🤖 Bot: %s", name))
+        end
+        
+        serverHopDueToBot(botNames[1])  -- Hop immediately
+        return  -- Don't check player count, just hop
+    end
+    
+    -- ✅ No other bots, check player count
     local currentPlayers = getPlayerCount()
     
     if currentPlayers > 3 then
@@ -1506,5 +1520,13 @@ task.spawn(function()
         print("📌 Bot will remain in this server until disconnected/error")
     end
     
-    -- That's it! No loop, no continuous checking
+    -- ✅ CONTINUOUS MONITORING: Check for new bots joining
+    Players.PlayerAdded:Connect(function(newPlayer)
+        task.wait(2)  -- Give them time to load marker
+        
+        if newPlayer:FindFirstChild("_VBBOT") then
+            print(string.format("⚠️ NEW BOT JOINED: %s", newPlayer.Name))
+            serverHopDueToBot(newPlayer.Name)
+        end
+    end)
 end)
