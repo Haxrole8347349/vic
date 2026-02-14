@@ -926,23 +926,42 @@ local function serverHopIfCrowded()
                     }
                 )
                 
+                print("🚀 CALLING TELEPORT (Xeno-compatible)...")
+                
+                -- ✅ Xeno-specific: Use queue_on_teleport to reload script after hop
+                if queue_on_teleport then
+                    queue_on_teleport([[
+                        task.wait(2)
+                        loadstring(game:HttpGet("YOUR_SCRIPT_URL_HERE"))()
+                    ]])
+                end
+                
+                -- ✅ Try game.ReplicatedFirst teleport (Xeno method)
                 local tpSuccess, tpErr = pcall(function()
-                    TeleportService:TeleportToPlaceInstance(
-                        result.place_id,
-                        result.job_id,
-                        player
-                    )
+                    local ts = game:GetService("TeleportService")
+                    ts:TeleportToPlaceInstance(result.place_id, result.job_id)
                 end)
                 
                 if tpSuccess then
-                    print("✅ Teleport initiated - script will reload in new server")
-                    -- Don't reset lock here - script reloads anyway
-                    task.wait(10)
-                    return
+                    print("✅ Teleport initiated (Xeno method)!")
+                    task.wait(15)  -- Longer wait for Xeno
+                    return  -- EXIT
                 else
-                    warn("❌ Teleport failed:", tpErr)
-                    -- Continue loop to retry
-                    task.wait(2)
+                    warn("❌ Xeno teleport failed:", tpErr)
+                    
+                    -- ✅ Fallback: Try standard method
+                    local fallbackSuccess, fallbackErr = pcall(function()
+                        TeleportService:TeleportToPlaceInstance(result.place_id, result.job_id, player)
+                    end)
+                    
+                    if fallbackSuccess then
+                        print("✅ Fallback teleport worked!")
+                        task.wait(15)
+                        return
+                    else
+                        warn("❌ All teleport methods failed:", fallbackErr)
+                        task.wait(5)
+                    end
                 end
             else
                 -- Pool empty or error - wait before retry
@@ -1399,33 +1418,21 @@ sendWebhook(
     }
 )
 
--- ✅ CONTINUOUS SERVER MONITORING (checks every 10 seconds)
+-- ✅ ONE-TIME STARTUP CHECK (only hops once at script start if crowded)
 task.spawn(function()
     task.wait(5)  -- Initial delay for script to fully load
     
-    print("🔍 Starting continuous server monitoring...")
-    print("📊 Target: Keep server at 1-2 players")
+    print("🔍 Performing ONE-TIME startup server check...")
     
-    while true do
-        local success, err = pcall(function()
-            local currentPlayers = getPlayerCount()
-            
-            -- Check if server is too crowded
-            if currentPlayers > 3 then
-                print(string.format("⚠️ Server check: %d players (OVER LIMIT - will hop)", currentPlayers))
-                serverHopIfCrowded()
-            else
-                -- Only log occasionally to avoid spam
-                if math.random(1, 6) == 1 then  -- ~1 in 6 checks (every minute)
-                    print(string.format("✅ Server check: %d players (OK)", currentPlayers))
-                end
-            end
-        end)
-        
-        if not success then
-            warn("❌ Server monitoring error:", err)
-        end
-        
-        task.wait(10)  -- Check every 10 seconds
+    local currentPlayers = getPlayerCount()
+    
+    if currentPlayers > 3 then
+        print(string.format("⚠️ Server CROWDED on startup (%d players) - will hop ONCE", currentPlayers))
+        serverHopIfCrowded()
+    else
+        print(string.format("✅ Server OK on startup (%d players) - STAYING HERE FOREVER", currentPlayers))
+        print("📌 Bot will remain in this server until disconnected/error")
     end
+    
+    -- That's it! No loop, no continuous checking
 end)
