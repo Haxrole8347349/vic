@@ -926,45 +926,38 @@ local function serverHopIfCrowded()
                     }
                 )
                 
-                print("🚀 TRYING 3 TELEPORT METHODS...")
+                print("🚀 ATTEMPTING TELEPORT...")
                 
-                -- ✅ METHOD 1: With LocalPlayer parameter
-                local m1 = pcall(function()
-                    game:GetService("TeleportService"):TeleportToPlaceInstance(result.place_id, result.job_id, game.Players.LocalPlayer)
-                end)
-                
-                if m1 then
-                    print("✅ Method 1 called")
-                    task.wait(12)
-                    if not player or not player.Parent then return end
-                end
-                
-                -- ✅ METHOD 2: Without player parameter
-                local m2 = pcall(function()
+                -- ✅ SINGLE METHOD ONLY (Xeno blocks multiple attempts)
+                local tpSuccess, tpErr = pcall(function()
                     game:GetService("TeleportService"):TeleportToPlaceInstance(result.place_id, result.job_id)
                 end)
                 
-                if m2 then
-                    print("✅ Method 2 called")
-                    task.wait(12)
-                    if not player or not player.Parent then return end
+                if tpSuccess then
+                    print("✅ Teleport call succeeded - waiting 20 seconds...")
+                    
+                    -- Wait up to 20 seconds for teleport
+                    for i = 1, 20 do
+                        task.wait(1)
+                        -- Check if we left
+                        if not player or not player.Parent then
+                            print("✅ TELEPORTED!")
+                            return
+                        end
+                        
+                        -- Check every 5 seconds
+                        if i % 5 == 0 then
+                            print(string.format("⏳ Still waiting... %d/20", i))
+                        end
+                    end
+                    
+                    -- Still here = teleport failed
+                    warn("⚠️ Teleport failed after 20 seconds - trying next server")
+                    task.wait(2)
+                else
+                    warn("❌ Teleport call failed:", tpErr)
+                    task.wait(3)
                 end
-                
-                -- ✅ METHOD 3: Using TeleportAsync
-                local m3 = pcall(function()
-                    local opts = Instance.new("TeleportOptions")
-                    opts.ServerInstanceId = result.job_id
-                    game:GetService("TeleportService"):TeleportAsync(result.place_id, {game.Players.LocalPlayer}, opts)
-                end)
-                
-                if m3 then
-                    print("✅ Method 3 called")
-                    task.wait(12)
-                    if not player or not player.Parent then return end
-                end
-                
-                warn("⚠️ All methods failed or didn't teleport - next server")
-                task.wait(2)
             else
                 -- Pool empty or error - wait before retry
                 if result and result.error then
