@@ -927,22 +927,20 @@ local function serverHopIfCrowded()
                 )
                 
                 print("🚀 CALLING TELEPORT...")
-
-                local teleportOptions = Instance.new("TeleportOptions")
-                teleportOptions.ServerInstanceId = result.job_id
                 
-                -- ✅ FIXED: Single teleport call, exit immediately on success
+                -- ✅ Use TeleportToPlaceInstance (works better with executors)
                 local tpSuccess, tpErr = pcall(function()
-                    TeleportService:TeleportAsync(result.place_id, {player}, teleportOptions)
+                    TeleportService:TeleportToPlaceInstance(result.place_id, result.job_id, player)
                 end)
                 
                 if tpSuccess then
-                    print("✅ Teleport call succeeded - waiting for teleport...")
-                    task.wait(10)  -- Wait for teleport to complete
-                    return  -- EXIT - either we teleported or will teleport soon
+                    print("✅ Teleport initiated!")
+                    task.wait(10)  -- Wait for teleport
+                    return  -- EXIT - we're teleporting
                 else
                     warn("❌ Teleport failed:", tpErr)
-                    task.wait(3)  -- Wait before trying next server
+                    -- Try next server
+                    task.wait(3)
                 end
             else
                 -- Pool empty or error - wait before retry
