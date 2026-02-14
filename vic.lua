@@ -926,14 +926,24 @@ local function serverHopIfCrowded()
                     }
                 )
                 
+                print("🚀 CALLING TELEPORT...")
+
+                local teleportOptions = Instance.new("TeleportOptions")
+                teleportOptions.ServerInstanceId = result.job_id
+                
                 local tpSuccess, tpErr = pcall(function()
-                    TeleportService:TeleportToPlaceInstance(
-                        result.place_id,
-                        result.job_id,
-                        player
-                    )
+                    TeleportService:TeleportAsync(result.place_id, {player}, teleportOptions)
                 end)
                 
+                if tpSuccess then
+                    print("✅ Teleport initiated - script will reload in new server")
+                    task.wait(10)
+                    return
+                else
+                    warn("❌ Teleport failed:", tpErr)
+                    task.wait(2)
+                end
+                                
                 if tpSuccess then
                     print("✅ Teleport initiated - script will reload in new server")
                     -- Don't reset lock here - script reloads anyway
