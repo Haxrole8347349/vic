@@ -926,21 +926,23 @@ local function serverHopIfCrowded()
                     }
                 )
                 
-                print("🚀 CALLING TELEPORT...")
-                
-                -- ✅ Use TeleportToPlaceInstance (works better with executors)
                 local tpSuccess, tpErr = pcall(function()
-                    TeleportService:TeleportToPlaceInstance(result.place_id, result.job_id, player)
+                    TeleportService:TeleportToPlaceInstance(
+                        result.place_id,
+                        result.job_id,
+                        player
+                    )
                 end)
                 
                 if tpSuccess then
-                    print("✅ Teleport initiated!")
-                    task.wait(10)  -- Wait for teleport
-                    return  -- EXIT - we're teleporting
+                    print("✅ Teleport initiated - script will reload in new server")
+                    -- Don't reset lock here - script reloads anyway
+                    task.wait(10)
+                    return
                 else
                     warn("❌ Teleport failed:", tpErr)
-                    -- Try next server
-                    task.wait(3)
+                    -- Continue loop to retry
+                    task.wait(2)
                 end
             else
                 -- Pool empty or error - wait before retry
