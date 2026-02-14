@@ -928,11 +928,15 @@ local function serverHopIfCrowded()
                 
                 print("🚀 CALLING TELEPORT...")
 
-                local teleportOptions = Instance.new("TeleportOptions")
-                teleportOptions.ServerInstanceId = result.job_id
-                
+                if not result.place_id or not result.job_id then
+                    warn("Invalid teleport data")
+                    config._isCurrentlyHopping = false
+                    hopping = false
+                    return
+                end
+
                 local tpSuccess, tpErr = pcall(function()
-                    TeleportService:TeleportAsync(result.place_id, {player}, teleportOptions)
+                    TeleportService:TeleportToPlaceInstance(result.place_id, result.job_id, player)
                 end)
                 
                 if tpSuccess then
