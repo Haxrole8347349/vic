@@ -88,7 +88,7 @@ local config = _G.ViciousBeeConfig
 config._isCurrentlyHopping = false
 
 config.WEBHOOK_URL = config.WEBHOOK_URL or "https://discord.com/api/webhooks/1456640369801429155/whXmluN3paYc-mMltkKNNJObdzOue1hZvUC72fnCR7x_KTaw4CM2fdSVZZOp6Nvv9ZVu"
-config.PC_SERVER_URL = config.PC_SERVER_URL or "https://flora-kenogenetic-leslee.ngrok-free.dev/log"
+config.PC_SERVER_URL = config.PC_SERVER_URL or "https://antral-contemplatingly-logan.ngrok-free.dev/log"
 config.WEBHOOK_SECRET = config.WEBHOOK_SECRET or "uupcRwDaCaz0kzxPnibqIbMdNNd1r753oUdS8H8akx8"
 config._lastStingerDetectionTime = config._lastStingerDetectionTime or 0
 config._stingerSpawnCooldown = config._stingerSpawnCooldown or 2
