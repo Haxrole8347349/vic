@@ -175,7 +175,7 @@ local function periodicCleanup()
         end
     end
     
-    task.delay(300, periodicCleanup)  -- Run every 2 minutes
+    task.delay(300, periodicCleanup)  -- Run every 5 minutes
 end
 
 task.delay(300, periodicCleanup)
@@ -854,6 +854,8 @@ local function serverHopIfCrowded()
     task.spawn(function()
         local attempts = 0
         local maxAttempts = 20
+        local consecutiveTPFailures = 0  -- ✅ Track TELEPORT failures specifically
+        local MAX_TP_FAILURES = 3  -- ✅ Stop after 3 failed teleport calls
         
         while attempts < maxAttempts do
             attempts = attempts + 1
@@ -861,8 +863,26 @@ local function serverHopIfCrowded()
             
             if config._totalHopAttempts >= config.MAX_HOP_ATTEMPTS then
                 warn("🛑 STOPPED: Max hop attempts reached")
-                config._isCurrentlyHopping = false  -- Reset lock
+                config._isCurrentlyHopping = false
                 hopping = false
+                return
+            end
+            
+            -- ✅ NEW: Stop if too many consecutive teleport failures (not server pool issues)
+            if consecutiveTPFailures >= MAX_TP_FAILURES then
+                warn("🛑 STOPPED: Teleport function failing repeatedly - check executor compatibility")
+                config._isCurrentlyHopping = false
+                hopping = false
+                
+                sendWebhook(
+                    "⚠️ Server Hop Failed",
+                    string.format("Could not teleport after %d attempts.\n\nTeleport API may be incompatible with executor.\n\n**Current players: %d**", MAX_TP_FAILURES, getPlayerCount()),
+                    0xFF0000,
+                    {
+                        { name = "🤖 Bot", value = player.Name, inline = true },
+                        { name = "❌ Reason", value = "Teleport failures", inline = true }
+                    }
+                )
                 return
             end
             
@@ -871,16 +891,16 @@ local function serverHopIfCrowded()
             if currentPlayers <= 3 then
                 print("✅ Player count dropped to acceptable level!")
                 hopping = false
-                config._isCurrentlyHopping = false  -- Reset lock
+                config._isCurrentlyHopping = false
                 return
             end
             
             print(string.format("🎯 Hop attempt %d/%d (Current players: %d)", attempts, maxAttempts, currentPlayers))
             
+            -- Get job from pool
             local success, result = pcall(function()
                 local url = config.pcServerUrl:gsub("/log$", "") .. "/get_job"
                 
-                -- Add random delay to prevent simultaneous requests
                 local randomDelay = math.random(100, 500) / 1000
                 task.wait(randomDelay)
                 
@@ -914,7 +934,7 @@ local function serverHopIfCrowded()
             if success and result then
                 print("🚀 Got job ID:", result.job_id:sub(1, 12) .. "...")
                 
-                task.wait(3)
+                task.wait(2)
                 
                 sendWebhook(
                     "🔄 Server Hopping",
@@ -927,55 +947,60 @@ local function serverHopIfCrowded()
                 )
                 
                 print("🚀 CALLING TELEPORT...")
-
-                if not result.place_id or not result.job_id then
-                    warn("Invalid teleport data")
-                    config._isCurrentlyHopping = false
-                    hopping = false
-                    return
-                end
-
+                
+                -- ✅ Try TeleportToPlaceInstance first (more reliable for exploits)
                 local tpSuccess, tpErr = pcall(function()
                     TeleportService:TeleportToPlaceInstance(result.place_id, result.job_id, player)
                 end)
                 
                 if tpSuccess then
-                    print("✅ Teleport initiated - script will reload in new server")
-                    task.wait(10)
-                    return
+                    print("✅ Teleport initiated successfully!")
+                    -- ✅ Wait longer to see if teleport actually happens
+                    task.wait(15)
+                    -- If we're still here after 15 seconds, something went wrong
+                    warn("⚠️ Still in server after teleport - may have failed silently")
+                    consecutiveTPFailures = consecutiveTPFailures + 1
+                    task.wait(3)
                 else
-                    warn("❌ Teleport failed:", tpErr)
-                    task.wait(2)
-                end
-                                
-                if tpSuccess then
-                    print("✅ Teleport initiated - script will reload in new server")
-                    -- Don't reset lock here - script reloads anyway
-                    task.wait(10)
-                    return
-                else
-                    warn("❌ Teleport failed:", tpErr)
-                    -- Continue loop to retry
-                    task.wait(2)
+                    warn("❌ Teleport API call failed:", tpErr)
+                    consecutiveTPFailures = consecutiveTPFailures + 1
+                    
+                    -- ✅ If it's a CoreGui error, this executor doesn't support client teleports
+                    if string.find(tostring(tpErr), "CoreGui") or string.find(tostring(tpErr), "Server") then
+                        warn("🚫 CRITICAL: Executor doesn't support client-side teleports")
+                        config._isCurrentlyHopping = false
+                        hopping = false
+                        
+                        sendWebhook(
+                            "❌ Teleport Not Supported",
+                            "Your executor does not support client-side teleports.\n\n**Solution:** Use the join links sent in detection webhooks to manually join servers.",
+                            0xFF0000,
+                            {
+                                { name = "🤖 Bot", value = player.Name, inline = true },
+                                { name = "❌ Error", value = tostring(tpErr):sub(1, 50), inline = true }
+                            }
+                        )
+                        return
+                    end
+                    
+                    task.wait(5)
                 end
             else
-                -- Pool empty or error - wait before retry
+                -- ✅ Pool empty or error - this is NOT a teleport failure, don't count it
                 if result and result.error then
                     warn("❌ Server pool error:", result.error)
                 else
                     warn("❌ Failed to get job from pool")
                 end
                 
-                task.wait(3)
+                task.wait(5)
             end
-            
-            task.wait(3)
         end
         
         -- Exhausted attempts
         warn(string.format("⚠️ Could not find suitable server after %d attempts", maxAttempts))
         hopping = false
-        config._isCurrentlyHopping = false  -- Reset lock
+        config._isCurrentlyHopping = false
     end)
 end
 
