@@ -914,30 +914,6 @@ local function serverHopIfCrowded()
             if success and result then
                 print("🚀 Got job ID:", result.job_id:sub(1, 12) .. "...")
                 
-                -- ✅ FIX: Stop all connections BEFORE teleporting
-                config.isRunning = false
-                
-                if config._descendantConnection then
-                    pcall(function() config._descendantConnection:Disconnect() end)
-                end
-                
-                if config._propertyConnections then
-                    for _, conn in pairs(config._propertyConnections) do
-                        pcall(function() conn:Disconnect() end)
-                    end
-                end
-                
-                if config._playerMonitorConnection then
-                    pcall(function() config._playerMonitorConnection:Disconnect() end)
-                end
-                
-                if config._playerRemovingConnection then
-                    pcall(function() config._playerRemovingConnection:Disconnect() end)
-                end
-                
-                -- ✅ FIX: Wait to ensure everything stopped
-                task.wait(2)
-                
                 sendWebhook(
                     "🔄 Server Hopping",
                     string.format("Server too crowded (**%d players**)\n\nHopping to new server...", currentPlayers),
@@ -948,36 +924,19 @@ local function serverHopIfCrowded()
                     }
                 )
                 
-                task.wait(1)
+                task.wait(3)
                 
                 print("🚀 CALLING TELEPORT...")
-                local tpSuccess, tpErr = pcall(function()
-                    TeleportService:TeleportToPlaceInstance(
-                        result.place_id,
-                        result.job_id,
-                        player
-                    )
-                end)
+                TeleportService:TeleportToPlaceInstance(
+                    result.place_id,
+                    result.job_id,
+                    player
+                )
                 
-                if tpSuccess then
-                    print("✅ Teleport initiated - waiting...")
-                    task.wait(30)  -- Wait 30 seconds
-                    
-                    -- If still here, teleport failed
-                    warn("⚠️ Teleport timeout - retrying...")
-                    config._isCurrentlyHopping = false
-                    hopping = false
-                    config.isRunning = true
-                    task.wait(3)
-                else
-                    warn("❌ Teleport failed:", tpErr)
-                    config._isCurrentlyHopping = false
-                    hopping = false
-                    config.isRunning = true
-                    task.wait(3)
-                end
+                print("✅ Teleport called - waiting for game to reload...")
+                task.wait(10)
+                return
             else
-                -- No job from pool
                 warn("❌ Failed to get job from pool")
                 task.wait(3)
             end
