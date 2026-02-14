@@ -724,9 +724,7 @@ local function setupAutoReconnect()
         
         -- Try to rejoin the same server
         local success, err = pcall(function()
-            local teleportOptions = Instance.new("TeleportOptions")
-            teleportOptions.ServerInstanceId = job_id
-            TeleportService:TeleportAsync(place_id, {player}, teleportOptions)
+            TeleportService:TeleportToPlaceInstance(currentPlaceId, currentJobId, player)
         end)
         
         if not success then
@@ -916,6 +914,8 @@ local function serverHopIfCrowded()
             if success and result then
                 print("🚀 Got job ID:", result.job_id:sub(1, 12) .. "...")
                 
+                task.wait(3)
+                
                 sendWebhook(
                     "🔄 Server Hopping",
                     string.format("Server too crowded (**%d players**)\n\nHopping to new server...", currentPlayers),
@@ -926,20 +926,32 @@ local function serverHopIfCrowded()
                     }
                 )
                 
-                task.wait(3)
+                local tpSuccess, tpErr = pcall(function()
+                    TeleportService:TeleportToPlaceInstance(
+                        result.place_id,
+                        result.job_id,
+                        player
+                    )
+                end)
                 
-                print("🚀 CALLING TELEPORT...")
-                TeleportService:TeleportToPlaceInstance(
-                    result.place_id,
-                    result.job_id,
-                    player
-                )
-                
-                print("✅ Teleport called - waiting for game to reload...")
-                task.wait(10)
-                return
+                if tpSuccess then
+                    print("✅ Teleport initiated - script will reload in new server")
+                    -- Don't reset lock here - script reloads anyway
+                    task.wait(10)
+                    return
+                else
+                    warn("❌ Teleport failed:", tpErr)
+                    -- Continue loop to retry
+                    task.wait(2)
+                end
             else
-                warn("❌ Failed to get job from pool")
+                -- Pool empty or error - wait before retry
+                if result and result.error then
+                    warn("❌ Server pool error:", result.error)
+                else
+                    warn("❌ Failed to get job from pool")
+                end
+                
                 task.wait(3)
             end
             
