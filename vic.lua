@@ -943,9 +943,26 @@ local function serverHopIfCrowded()
                 end)
                 
                 if tpSuccess then
-                    print("✅ Teleport initiated (Xeno method)!")
-                    task.wait(15)  -- Longer wait for Xeno
-                    return  -- EXIT
+                    print("✅ Teleport call succeeded!")
+                    
+                    -- ✅ CRITICAL: Wait and check if we're still here
+                    local startTime = tick()
+                    local maxWaitTime = 15
+                    
+                    while tick() - startTime < maxWaitTime do
+                        -- Check if player still exists (means we haven't teleported)
+                        if not player or not player.Parent then
+                            print("✅ Successfully teleported!")
+                            return  -- We teleported!
+                        end
+                        task.wait(1)
+                    end
+                    
+                    -- Still here after 15 seconds = teleport failed silently
+                    warn("⚠️ Teleport call succeeded but didn't actually teleport - trying next server")
+                    config._isCurrentlyHopping = false  -- ✅ RESET LOCK
+                    hopping = false
+                    task.wait(3)
                 else
                     warn("❌ Xeno teleport failed:", tpErr)
                     
@@ -956,10 +973,23 @@ local function serverHopIfCrowded()
                     
                     if fallbackSuccess then
                         print("✅ Fallback teleport worked!")
-                        task.wait(15)
-                        return
+                        
+                        local startTime = tick()
+                        while tick() - startTime < 15 do
+                            if not player or not player.Parent then
+                                return
+                            end
+                            task.wait(1)
+                        end
+                        
+                        warn("⚠️ Fallback also failed silently")
+                        config._isCurrentlyHopping = false  -- ✅ RESET LOCK
+                        hopping = false
+                        task.wait(3)
                     else
                         warn("❌ All teleport methods failed:", fallbackErr)
+                        config._isCurrentlyHopping = false  -- ✅ RESET LOCK
+                        hopping = false
                         task.wait(5)
                     end
                 end
