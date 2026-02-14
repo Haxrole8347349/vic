@@ -331,6 +331,52 @@ local function getPlayerCount()
     return #Players:GetPlayers()
 end
 
+-- ✅ BOT MARKER SYSTEM
+local function identifyAsBot()
+    -- Add hidden marker to our player
+    if not player:FindFirstChild("_VBBOT") then
+        local marker = Instance.new("Folder")
+        marker.Name = "_VBBOT"
+        marker.Parent = player
+        print("✅ Bot marker created")
+    end
+end
+
+local function detectOtherBots()
+    local botCount = 0
+    local botNames = {}
+    
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player and plr:FindFirstChild("_VBBOT") then
+            botCount = botCount + 1
+            table.insert(botNames, plr.Name)
+        end
+    end
+    
+    return botCount, botNames
+end
+
+local function serverHopDueToBot(botName)
+    print(string.format("🤖 DETECTED BOT: %s - Hopping immediately!", botName))
+    
+    sendWebhook(
+        "🤖 Bot Collision Detected",
+        string.format("Found bot **%s** in server!\n\nHopping immediately to avoid collision...", botName),
+        0xFF6B6B,
+        {
+            { name = "🤖 Detected Bot", value = botName, inline = true },
+            { name = "🤖 My Bot", value = player.Name, inline = true }
+        }
+    )
+    
+    task.wait(1)
+    
+    -- Force immediate hop
+    config._isCurrentlyHopping = false  -- Reset lock
+    config._totalHopAttempts = 0  -- Reset attempts
+    serverHopIfCrowded()  -- Use existing hop function
+end
+
 local function identifyAsBot()
     if not player:FindFirstChild("_VBBOT") then
         local marker = Instance.new("Folder")
@@ -1378,7 +1424,7 @@ createGUI()
 
 -- Wait for GUI to load
 task.wait(1)
-identifyAsBot()
+identifyAsBot()  -- ✅ MARK OURSELVES AS BOT
 
 -- ✅ AUTO-START THE SCRIPT
 config.isRunning = true
