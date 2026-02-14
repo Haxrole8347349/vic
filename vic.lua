@@ -724,7 +724,9 @@ local function setupAutoReconnect()
         
         -- Try to rejoin the same server
         local success, err = pcall(function()
-            TeleportService:TeleportToPlaceInstance(currentPlaceId, currentJobId, player)
+            local teleportOptions = Instance.new("TeleportOptions")
+            teleportOptions.ServerInstanceId = job_id
+            TeleportService:TeleportAsync(place_id, {player}, teleportOptions)
         end)
         
         if not success then
