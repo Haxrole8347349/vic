@@ -839,6 +839,7 @@ local function serverHopIfCrowded()
     -- Only hop if MORE than 2 players
     if currentPlayers <= 3 then
         print(string.format("✅ Server OK: %d players (under limit)", currentPlayers))
+        config._isCurrentlyHopping = false  -- ← Reset lock before returning
         return
     end
     
@@ -853,12 +854,12 @@ local function serverHopIfCrowded()
         
         while attempts < maxAttempts do
             attempts = attempts + 1
-            config._totalHopAttempts = config._totalHopAttempts + 1  -- ← ADD
+            config._totalHopAttempts = config._totalHopAttempts + 1
             
-            -- ← ADD THESE 3 LINES
             if config._totalHopAttempts >= config.MAX_HOP_ATTEMPTS then
                 warn("🛑 STOPPED: Max hop attempts reached")
-                return  -- Stop forever
+                config._isCurrentlyHopping = false  -- ← Reset lock
+                return
             end
             
             -- Recheck player count (might have changed)
@@ -866,6 +867,7 @@ local function serverHopIfCrowded()
             if currentPlayers <= 3 then
                 print("✅ Player count dropped to acceptable level!")
                 hopping = false
+                config._isCurrentlyHopping = false  -- ← Reset lock
                 return
             end
             
@@ -875,7 +877,7 @@ local function serverHopIfCrowded()
                 local url = config.pcServerUrl:gsub("/log$", "") .. "/get_job"
                 
                 -- Add random delay to prevent simultaneous requests
-                local randomDelay = math.random(100, 500) / 1000  -- 0.1-0.5 seconds
+                local randomDelay = math.random(100, 500) / 1000
                 task.wait(randomDelay)
                 
                 local response = request({
@@ -908,7 +910,6 @@ local function serverHopIfCrowded()
             if success and result then
                 print("🚀 Got job ID:", result.job_id:sub(1, 12) .. "...")
                 
-                -- CRITICAL: Wait before teleporting to ensure previous teleport finished
                 task.wait(3)
                 
                 sendWebhook(
@@ -931,11 +932,13 @@ local function serverHopIfCrowded()
                 
                 if tpSuccess then
                     print("✅ Teleport initiated - script will reload in new server")
-                    task.wait(10)  -- Wait for teleport to complete
+                    -- Don't reset lock here - script reloads anyway
+                    task.wait(10)
                     return
                 else
                     warn("❌ Teleport failed:", tpErr)
-                    task.wait(2)  -- Wait before retry
+                    -- Continue loop to retry
+                    task.wait(2)
                 end
             else
                 -- Pool empty or error - wait before retry
@@ -945,22 +948,17 @@ local function serverHopIfCrowded()
                     warn("❌ Failed to get job from pool")
                 end
                 
-                task.wait(3)  -- Wait longer before retry
+                task.wait(3)
             end
             
-            task.wait(3)  -- Wait before next attempt
+            task.wait(3)
         end
         
-        -- Exhausted attempts
         warn(string.format("⚠️ Could not find suitable server after %d attempts", maxAttempts))
         hopping = false
+        config._isCurrentlyHopping = false  -- ← Reset lock
     end)
-    
-    -- Reset hopping lock after 30 seconds (in case teleport fails)
-    task.delay(30, function()
-        config._isCurrentlyHopping = false
-    end)
-end  
+end
 
 
 local function createGUI()
