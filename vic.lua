@@ -926,73 +926,45 @@ local function serverHopIfCrowded()
                     }
                 )
                 
-                print("🚀 CALLING TELEPORT (Xeno-compatible)...")
+                print("🚀 TRYING 3 TELEPORT METHODS...")
                 
-                -- ✅ Xeno-specific: Use queue_on_teleport to reload script after hop
-                if queue_on_teleport then
-                    queue_on_teleport([[
-                        task.wait(2)
-                        loadstring(game:HttpGet("YOUR_SCRIPT_URL_HERE"))()
-                    ]])
-                end
-                
-                -- ✅ Try game.ReplicatedFirst teleport (Xeno method)
-                local tpSuccess, tpErr = pcall(function()
-                    local ts = game:GetService("TeleportService")
-                    ts:TeleportToPlaceInstance(result.place_id, result.job_id)
+                -- ✅ METHOD 1: With LocalPlayer parameter
+                local m1 = pcall(function()
+                    game:GetService("TeleportService"):TeleportToPlaceInstance(result.place_id, result.job_id, game.Players.LocalPlayer)
                 end)
                 
-                if tpSuccess then
-                    print("✅ Teleport call succeeded!")
-                    
-                    -- ✅ CRITICAL: Wait and check if we're still here
-                    local startTime = tick()
-                    local maxWaitTime = 15
-                    
-                    while tick() - startTime < maxWaitTime do
-                        -- Check if player still exists (means we haven't teleported)
-                        if not player or not player.Parent then
-                            print("✅ Successfully teleported!")
-                            return  -- We teleported!
-                        end
-                        task.wait(1)
-                    end
-                    
-                    -- Still here after 15 seconds = teleport failed silently
-                    warn("⚠️ Teleport call succeeded but didn't actually teleport - trying next server")
-                    config._isCurrentlyHopping = false  -- ✅ RESET LOCK
-                    hopping = false
-                    task.wait(3)
-                else
-                    warn("❌ Xeno teleport failed:", tpErr)
-                    
-                    -- ✅ Fallback: Try standard method
-                    local fallbackSuccess, fallbackErr = pcall(function()
-                        TeleportService:TeleportToPlaceInstance(result.place_id, result.job_id, player)
-                    end)
-                    
-                    if fallbackSuccess then
-                        print("✅ Fallback teleport worked!")
-                        
-                        local startTime = tick()
-                        while tick() - startTime < 15 do
-                            if not player or not player.Parent then
-                                return
-                            end
-                            task.wait(1)
-                        end
-                        
-                        warn("⚠️ Fallback also failed silently")
-                        config._isCurrentlyHopping = false  -- ✅ RESET LOCK
-                        hopping = false
-                        task.wait(3)
-                    else
-                        warn("❌ All teleport methods failed:", fallbackErr)
-                        config._isCurrentlyHopping = false  -- ✅ RESET LOCK
-                        hopping = false
-                        task.wait(5)
-                    end
+                if m1 then
+                    print("✅ Method 1 called")
+                    task.wait(12)
+                    if not player or not player.Parent then return end
                 end
+                
+                -- ✅ METHOD 2: Without player parameter
+                local m2 = pcall(function()
+                    game:GetService("TeleportService"):TeleportToPlaceInstance(result.place_id, result.job_id)
+                end)
+                
+                if m2 then
+                    print("✅ Method 2 called")
+                    task.wait(12)
+                    if not player or not player.Parent then return end
+                end
+                
+                -- ✅ METHOD 3: Using TeleportAsync
+                local m3 = pcall(function()
+                    local opts = Instance.new("TeleportOptions")
+                    opts.ServerInstanceId = result.job_id
+                    game:GetService("TeleportService"):TeleportAsync(result.place_id, {game.Players.LocalPlayer}, opts)
+                end)
+                
+                if m3 then
+                    print("✅ Method 3 called")
+                    task.wait(12)
+                    if not player or not player.Parent then return end
+                end
+                
+                warn("⚠️ All methods failed or didn't teleport - next server")
+                task.wait(2)
             else
                 -- Pool empty or error - wait before retry
                 if result and result.error then
