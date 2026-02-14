@@ -119,6 +119,20 @@ config.webhookSecret = config.WEBHOOK_SECRET
 config._propertyConnections = config._propertyConnections or {}
 config._isCurrentlyHopping = config._isCurrentlyHopping or false
 
+-- ✅ BOT ID SYSTEM (prevents collisions)
+local function generateBotID()
+    local name = player.Name
+    local hash = 0
+    for i = 1, #name do
+        hash = (hash * 31 + string.byte(name, i)) % 1000
+    end
+    return hash
+end
+
+config._botID = config._botID or generateBotID()
+config._staggerDelay = (config._botID % 30)  -- 0-30 second spread
+print(string.format("🤖 Bot ID: %d | Stagger Delay: %ds", config._botID, config._staggerDelay))
+
 local function periodicCleanup()
     local now = tick()
     local cleaned = 0
@@ -830,28 +844,32 @@ local function serverHopIfCrowded()
         return
     end
     
-    -- Prevent spam (wait at least 5 seconds between hop attempts)
+    -- Prevent spam
     if hopping or (now - lastHopAttempt < 5) then
         return
     end
     
-    config._isCurrentlyHopping = true  -- Lock hopping
+    config._isCurrentlyHopping = true
     
     local currentPlayers = getPlayerCount()
     
-    -- Only hop if MORE than 3 players
     if currentPlayers <= 3 then
-        print(string.format("✅ Server OK: %d players (under limit)", currentPlayers))
-        config._isCurrentlyHopping = false  -- Reset lock before returning
+        print(string.format("✅ Server OK: %d players", currentPlayers))
+        config._isCurrentlyHopping = false
         return
     end
     
     lastHopAttempt = now
     hopping = true
     
-    print(string.format("🔄 Server CROWDED (%d players) - initiating hop...", currentPlayers))
+    print(string.format("🔄 CROWDED (%d players) - Bot %d initiating hop...", currentPlayers, config._botID))
     
     task.spawn(function()
+        -- ✅ STAGGERED START: Each bot waits its turn
+        local myDelay = config._staggerDelay + math.random(0, 5)  -- Add 0-5s randomness
+        print(string.format("⏳ Waiting %ds before scanning (Bot %d)...", myDelay, config._botID))
+        task.wait(myDelay)
+        
         local attempts = 0
         local maxAttempts = 20
         
@@ -860,122 +878,135 @@ local function serverHopIfCrowded()
             config._totalHopAttempts = config._totalHopAttempts + 1
             
             if config._totalHopAttempts >= config.MAX_HOP_ATTEMPTS then
-                warn("🛑 STOPPED: Max hop attempts reached")
-                config._isCurrentlyHopping = false  -- Reset lock
+                warn("🛑 Max hop attempts reached")
+                config._isCurrentlyHopping = false
                 hopping = false
                 return
             end
             
-            -- Recheck player count (might have changed)
+            -- Recheck player count
             currentPlayers = getPlayerCount()
             if currentPlayers <= 3 then
-                print("✅ Player count dropped to acceptable level!")
+                print("✅ Player count acceptable!")
                 hopping = false
-                config._isCurrentlyHopping = false  -- Reset lock
+                config._isCurrentlyHopping = false
                 return
             end
             
-            print(string.format("🎯 Hop attempt %d/%d (Current players: %d)", attempts, maxAttempts, currentPlayers))
+            print(string.format("🎯 Bot %d: Attempt %d/%d", config._botID, attempts, maxAttempts))
             
-            local success, result = pcall(function()
-                local url = config.pcServerUrl:gsub("/log$", "") .. "/get_job"
+            -- ✅ BUILD OWN SERVER POOL
+            local success, matchingServers = pcall(function()
+                local placeId = game.PlaceId
+                local myServers = {}
                 
-                -- Add random delay to prevent simultaneous requests
-                local randomDelay = math.random(100, 500) / 1000
-                task.wait(randomDelay)
+                -- ✅ Each bot scans different pages based on Bot ID
+                local startPage = (config._botID % 5) + 1  -- Bot spreads across pages 1-5
+                local cursor = ""
+                local pagesScanned = 0
+                local maxPages = 3  -- Each bot only scans 3 pages (faster)
                 
-                local response = request({
-                    Url = url,
-                    Method = "GET",
-                    Headers = {
-                        ["ngrok-skip-browser-warning"] = "true",
-                        ["X-Webhook-Token"] = config.webhookSecret
-                    }
-                })
-                
-                if not response then
-                    return nil
-                end
-                
-                if response.StatusCode ~= 200 then
-                    warn("❌ Bad status:", response.StatusCode)
-                    return nil
-                end
-                
-                local data = HttpService:JSONDecode(response.Body)
-                
-                if data and data.success and data.job_id then
-                    return data
-                end
-                
-                return nil
-            end)
-            
-            if success and result then
-                print("🚀 Got job ID:", result.job_id:sub(1, 12) .. "...")
-                
-                task.wait(3)
-                
-                sendWebhook(
-                    "🔄 Server Hopping",
-                    string.format("Server too crowded (**%d players**)\n\nHopping to new server...", currentPlayers),
-                    0xFFA500,
-                    {
-                        { name = "👥 Current Players", value = tostring(currentPlayers), inline = true },
-                        { name = "🎯 Attempt", value = string.format("%d/%d", attempts, maxAttempts), inline = true }
-                    }
-                )
-                
-                print("🚀 ATTEMPTING TELEPORT...")
-                
-                -- ✅ SINGLE METHOD ONLY (Xeno blocks multiple attempts)
-                local tpSuccess, tpErr = pcall(function()
-                    game:GetService("TeleportService"):TeleportToPlaceInstance(result.place_id, result.job_id)
-                end)
-                
-                if tpSuccess then
-                    print("✅ Teleport call succeeded - waiting 20 seconds...")
+                -- Skip to our starting page
+                for skip = 1, startPage - 1 do
+                    local skipUrl = string.format(
+                        "https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&excludeFullGames=true&limit=100",
+                        placeId
+                    )
                     
-                    -- Wait up to 20 seconds for teleport
-                    for i = 1, 20 do
-                        task.wait(1)
-                        -- Check if we left
-                        if not player or not player.Parent then
-                            print("✅ TELEPORTED!")
-                            return
-                        end
+                    local skipResp = request({Url = skipUrl, Method = "GET"})
+                    if skipResp.StatusCode == 200 then
+                        local skipData = HttpService:JSONDecode(skipResp.Body)
+                        cursor = skipData.nextPageCursor or ""
+                    end
+                    task.wait(2.5)  -- Rate limit
+                end
+                
+                -- Now scan OUR pages
+                while pagesScanned < maxPages do
+                    pagesScanned = pagesScanned + 1
+                    
+                    local url = string.format(
+                        "https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&excludeFullGames=true&limit=100",
+                        placeId
+                    )
+                    if cursor ~= "" then
+                        url = url .. "&cursor=" .. cursor
+                    end
+                    
+                    local response = request({Url = url, Method = "GET"})
+                    
+                    if response.StatusCode ~= 200 then
+                        warn("❌ API error:", response.StatusCode)
+                        break
+                    end
+                    
+                    local data = HttpService:JSONDecode(response.Body)
+                    
+                    for _, server in ipairs(data.data) do
+                        local playing = server.playing
+                        local jobId = server.id
                         
-                        -- Check every 5 seconds
-                        if i % 5 == 0 then
-                            print(string.format("⏳ Still waiting... %d/20", i))
+                        if playing >= 1 and playing <= 2 and jobId ~= game.JobId then
+                            table.insert(myServers, {jobId = jobId, players = playing})
                         end
                     end
                     
-                    -- Still here = teleport failed
-                    warn("⚠️ Teleport failed after 20 seconds - trying next server")
-                    task.wait(2)
-                else
-                    warn("❌ Teleport call failed:", tpErr)
-                    task.wait(3)
-                end
-            else
-                -- Pool empty or error - wait before retry
-                if result and result.error then
-                    warn("❌ Server pool error:", result.error)
-                else
-                    warn("❌ Failed to get job from pool")
+                    cursor = data.nextPageCursor or ""
+                    if cursor == "" then break end
+                    
+                    task.wait(2.5)
                 end
                 
-                task.wait(3)
-            end
+                return myServers
+            end)
             
-            task.wait(3)
+            if success and matchingServers and #matchingServers > 0 then
+                -- ✅ Pick random from MY pool
+                local randomServer = matchingServers[math.random(1, #matchingServers)]
+                print(string.format("✅ Bot %d found %d servers, picked: %s (%d players)", 
+                    config._botID, #matchingServers, randomServer.jobId:sub(1, 12), randomServer.players))
+                
+                sendWebhook(
+                    "🔄 Server Hopping",
+                    string.format("Bot %d hopping to server with **%d players**", config._botID, randomServer.players),
+                    0xFFA500,
+                    {
+                        { name = "👥 Target Players", value = tostring(randomServer.players), inline = true },
+                        { name = "🤖 Bot ID", value = tostring(config._botID), inline = true }
+                    }
+                )
+                
+                task.wait(2)
+                
+                -- ✅ SINGLE TELEPORT METHOD (most reliable)
+                local tpSuccess = pcall(function()
+                    game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, randomServer.jobId)
+                end)
+                
+                if tpSuccess then
+                    print("✅ Teleport initiated!")
+                    task.wait(20)  -- Wait for teleport
+                    
+                    -- If still here after 20s, try next
+                    if player and player.Parent then
+                        warn("⚠️ Teleport didn't work - trying next")
+                        task.wait(3)
+                    else
+                        return  -- Success!
+                    end
+                else
+                    warn("❌ Teleport failed")
+                    task.wait(5)
+                end
+            else
+                warn("❌ No servers found in my pool")
+                task.wait(5)
+            end
         end
         
-        -- Exhausted attempts
-        warn(string.format("⚠️ Could not find suitable server after %d attempts", maxAttempts))
+        warn(string.format("⚠️ Bot %d exhausted attempts", config._botID))
         hopping = false
-        config._isCurrentlyHopping = false  -- Reset lock
+        config._isCurrentlyHopping = false
     end)
 end
 
