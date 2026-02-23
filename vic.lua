@@ -583,129 +583,44 @@ end)
     )
 end
 
--- SMART DETECTION: Only alert ONCE per spawn event with size verification
 local function onNewObject(obj)
-    if config.stingerDetected then
-        return
-    end
-
-    local now = tick()
-    if now - config._lastStingerDetectionTime < config._stingerSpawnCooldown then
-        return
-    end
-
     if not config.isRunning then return end
-
     if not obj or not obj.Parent then return end
     if not obj:IsA("BasePart") then return end
-    
     if obj.Name ~= "Thorn" then return end
-    
-    if not verifySizeMatch(obj.Size) then
-        return
-    end
+    if not verifySizeMatch(obj.Size) then return end
 
     local field, distance = getClosestField(obj.Position)
+    if field == "Unknown" or distance > 150 then return end
 
-    if field == "Unknown" or distance > 150 then
-        return
-    end
-
-    -- per-object dedupe
-    if config._detectedStingers[obj] then return end
-    config._detectedStingers[obj] = true
-
-    config.stingerDetected = true
-    task.delay(300, function()
-        if config.stingerDetected and not config._defeatReported then
-            config.stingerDetected = false
-            config._defeatReported = false
-        end
-    end)
-    config._defeatReported = false
-    config._lastStingerDetectionTime = now
-    config.currentField = field
-    config.detectionCount = config.detectionCount + 1
-
-    local joinLink = generateJoinLink()
-    local serverTypeText = config.serverType == "Private" and "🔒 Private Server" or "🌐 Public Server"
-    
-    -- Start player count monitoring for 4 minutes
-    startPlayerCountMonitoring(field, joinLink)
-    
-    local playerDistance = "Unknown"
-    local char = player.Character
-    if char then
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            playerDistance = math.floor((hrp.Position - obj.Position).Magnitude) .. " studs"
-        end
-    end
-
-    local currentPlayerCount = getPlayerCount()
-    local webhookFields = {
-        { name = "📦 Object Name", value = obj.Name, inline = true },
-        { name = "🔧 Type", value = obj.ClassName, inline = true },
-        { name = "📍 Field", value = config.currentField, inline = true },
-        { name = "📏 Field Distance", value = math.floor(distance) .. " studs", inline = true },
-        { name = "👤 Player Distance", value = playerDistance, inline = true },
-        { name = "🖥️ Server Type", value = serverTypeText, inline = true },
-        { name = "📐 Size", value = string.format("%.1f×%.1f×%.1f", obj.Size.X, obj.Size.Y, obj.Size.Z), inline = true },
-        { name = "✅ Size Verified", value = "Matches stinger (3×2×1.5)", inline = true },
-        { name = "🧭 Position", value = string.format("(%.1f, %.1f, %.1f)", obj.Position.X, obj.Position.Y, obj.Position.Z), inline = false },
-        { name = "🔢 Detection #", value = tostring(config.detectionCount), inline = true }
-    }
-    
-    sendWebhook(
-    "🎯 VICIOUS BEE STINGER DETECTED!",
-    "🚨 A stinger was found!\n\n**🔗 [CLICK HERE TO JOIN THIS SERVER](" .. joinLink .. ")**\n\n**👥 Player Count Monitoring: ACTIVE (4 minutes)**",
-    0xFF0000,
-    webhookFields
-    )
-
-    -- Store connection to prevent duplicates
+    -- ALWAYS set up AncestryChanged first, no dedupe check here
     if not config._stingerAncestryConnections then
         config._stingerAncestryConnections = {}
     end
-    
-    -- Don't create duplicate connections for same object
-    if config._stingerAncestryConnections[obj] then
-        return
-    end
 
-    local ancestryConn
-    ancestryConn = obj.AncestryChanged:Connect(function()
-        if not obj.Parent then
-            -- IMMEDIATELY disconnect and remove from tracking
+    if not config._stingerAncestryConnections[obj] then
+        local ancestryConn
+        ancestryConn = obj.AncestryChanged:Connect(function()
+            if obj.Parent then return end
+
             if ancestryConn and ancestryConn.Connected then
                 ancestryConn:Disconnect()
             end
             config._stingerAncestryConnections[obj] = nil
-            
-            -- 🔒 Per-object dedupe
-            if config._detectedStingers[obj] == "defeated" then
-                return
-            end
-    
-            -- 🔒 Global dedupe
-            if config._defeatReported then
-                return
-            end
-    
+
+            if config._detectedStingers[obj] == "defeated" then return end
+            if config._defeatReported then return end
+
             config._defeatReported = true
             config._detectedStingers[obj] = "defeated"
-    
             config.stingerDetected = false
 
             local joinLink = generateJoinLink()
-    
             local defeatedField = getActiveField()
-    
+
             updateStingerLog(player.Name, defeatedField, "NOT ACTIVE", joinLink)
-            
-            -- Reset AFTER sending
             config.currentField = "None"
-    
+
             sendWebhook(
                 "🏆 Vicious Bee Defeated!",
                 "The stinger at **"..defeatedField.."** has been removed from the workspace!\n\nStatus set to **NOT ACTIVE**",
@@ -718,39 +633,81 @@ local function onNewObject(obj)
                 }
             )
             config._defeatReported = false
-    
-            -- 🔹 Stop monitoring
+
             config._defeatCheckActive = false
             if config._monitoringActive then
                 config._monitoringActive = false
-                
-                -- Disconnect PlayerAdded
                 if config._playerMonitorConnection then
-                    pcall(function() 
-                        config._playerMonitorConnection:Disconnect() 
-                    end)
+                    pcall(function() config._playerMonitorConnection:Disconnect() end)
                     config._playerMonitorConnection = nil
                 end
-                
-                -- Disconnect PlayerRemoving
                 if config._playerRemovingConnection then
-                    pcall(function() 
-                        config._playerRemovingConnection:Disconnect() 
-                    end)
+                    pcall(function() config._playerRemovingConnection:Disconnect() end)
                     config._playerRemovingConnection = nil
                 end
-                
-                -- Cancel 4-minute timer
                 if config._activeStatusTimer then
-                    pcall(function()
-                        task.cancel(config._activeStatusTimer)
-                    end)
+                    pcall(function() task.cancel(config._activeStatusTimer) end)
                     config._activeStatusTimer = nil
-                end    
+                end
             end
+        end)
+        config._stingerAncestryConnections[obj] = ancestryConn
+    end
+
+    -- Webhook/detection dedupe starts HERE (after connection is set up)
+    if config.stingerDetected then return end
+    if config._detectedStingers[obj] then return end
+
+    local now = tick()
+    if now - config._lastStingerDetectionTime < config._stingerSpawnCooldown then return end
+
+    config._detectedStingers[obj] = true
+    config.stingerDetected = true
+    config._defeatReported = false
+    config._lastStingerDetectionTime = now
+    config.currentField = field
+    config.detectionCount = config.detectionCount + 1
+
+    task.delay(300, function()
+        if config.stingerDetected and not config._defeatReported then
+            config.stingerDetected = false
+            config._defeatReported = false
         end
     end)
-    config._stingerAncestryConnections[obj] = ancestryConn
+
+    local joinLink = generateJoinLink()
+    local serverTypeText = config.serverType == "Private" and "🔒 Private Server" or "🌐 Public Server"
+
+    startPlayerCountMonitoring(field, joinLink)
+
+    local playerDistance = "Unknown"
+    local char = player.Character
+    if char then
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            playerDistance = math.floor((hrp.Position - obj.Position).Magnitude) .. " studs"
+        end
+    end
+
+    local webhookFields = {
+        { name = "📦 Object Name", value = obj.Name, inline = true },
+        { name = "🔧 Type", value = obj.ClassName, inline = true },
+        { name = "📍 Field", value = config.currentField, inline = true },
+        { name = "📏 Field Distance", value = math.floor(distance) .. " studs", inline = true },
+        { name = "👤 Player Distance", value = playerDistance, inline = true },
+        { name = "🖥️ Server Type", value = serverTypeText, inline = true },
+        { name = "📐 Size", value = string.format("%.1f×%.1f×%.1f", obj.Size.X, obj.Size.Y, obj.Size.Z), inline = true },
+        { name = "✅ Size Verified", value = "Matches stinger (3×2×1.5)", inline = true },
+        { name = "🧭 Position", value = string.format("(%.1f, %.1f, %.1f)", obj.Position.X, obj.Position.Y, obj.Position.Z), inline = false },
+        { name = "🔢 Detection #", value = tostring(config.detectionCount), inline = true }
+    }
+
+    sendWebhook(
+        "🎯 VICIOUS BEE STINGER DETECTED!",
+        "🚨 A stinger was found!\n\n**🔗 [CLICK HERE TO JOIN THIS SERVER](" .. joinLink .. ")**\n\n**👥 Player Count Monitoring: ACTIVE (4 minutes)**",
+        0xFF0000,
+        webhookFields
+    )
 end
 
 local TeleportService = game:GetService("TeleportService")
