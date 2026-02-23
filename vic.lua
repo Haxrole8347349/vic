@@ -87,13 +87,7 @@ local config = _G.ViciousBeeConfig
 -- ✅ RESET HOPPING LOCK ON SCRIPT START (prevents lock persistence after teleport)
 config._isCurrentlyHopping = false
 
-local WEBHOOK_URLS = {
-    "https://discord.com/api/webhooks/1456640369801429155/whXmluN3paYc-mMltkKNNJObdzOue1hZvUC72fnCR7x_KTaw4CM2fdSVZZOp6Nvv9ZVu",
-    "https://discord.com/api/webhooks/1475410059734421514/wGWCYoinQAT0_a_AI90RKDXh9s5FmQgo_vrhYuVCW76KY-gpPr0fakrVcIZCwrFs4Dcw", 
-    "https://discord.com/api/webhooks/1475410083373518933/Y7IBqLl8V5N4CMuVjRTTvVq_oApc88rGA4PwvFuIRsxIaVb5-VtnW8dcDydykLGQQ8MP"
-}
-
-config.WEBHOOK_URL = WEBHOOK_URLS[(config._botID % #WEBHOOK_URLS) + 1]
+config.WEBHOOK_URL = config.WEBHOOK_URL or "https://discord.com/api/webhooks/1456640369801429155/whXmluN3paYc-mMltkKNNJObdzOue1hZvUC72fnCR7x_KTaw4CM2fdSVZZOp6Nvv9ZVu"
 config.PC_SERVER_URL = config.PC_SERVER_URL or "https://antral-contemplatingly-logan.ngrok-free.dev/log"
 config.WEBHOOK_SECRET = config.WEBHOOK_SECRET or "uupcRwDaCaz0kzxPnibqIbMdNNd1r753oUdS8H8akx8"
 config._lastStingerDetectionTime = config._lastStingerDetectionTime or 0
@@ -634,7 +628,6 @@ local function onNewObject(obj)
     config.detectionCount = config.detectionCount + 1
 
     local joinLink = generateJoinLink()
-    local capturedField = field
     local serverTypeText = config.serverType == "Private" and "🔒 Private Server" or "🌐 Public Server"
     
     -- Start player count monitoring for 4 minutes
@@ -653,7 +646,7 @@ local function onNewObject(obj)
     local webhookFields = {
         { name = "📦 Object Name", value = obj.Name, inline = true },
         { name = "🔧 Type", value = obj.ClassName, inline = true },
-        { name = "📍 Field", value = capturedField, inline = true },
+        { name = "📍 Field", value = config.currentField, inline = true },
         { name = "📏 Field Distance", value = math.floor(distance) .. " studs", inline = true },
         { name = "👤 Player Distance", value = playerDistance, inline = true },
         { name = "🖥️ Server Type", value = serverTypeText, inline = true },
@@ -693,7 +686,13 @@ local function onNewObject(obj)
             if config._detectedStingers[obj] == "defeated" then
                 return
             end
-                
+    
+            -- 🔒 Global dedupe
+            if config._defeatReported then
+                return
+            end
+    
+            config._defeatReported = true
             config._detectedStingers[obj] = "defeated"
     
             config.stingerDetected = false
@@ -718,6 +717,7 @@ local function onNewObject(obj)
                     { name = "⏱️ Time", value = os.date("%X"), inline = true }
                 }
             )
+            config._defeatReported = false
     
             -- 🔹 Stop monitoring
             config._defeatCheckActive = false
