@@ -87,7 +87,12 @@ local config = _G.ViciousBeeConfig
 -- ✅ RESET HOPPING LOCK ON SCRIPT START (prevents lock persistence after teleport)
 config._isCurrentlyHopping = false
 
-config.WEBHOOK_URL = config.WEBHOOK_URL or "https://discord.com/api/webhooks/1456640369801429155/whXmluN3paYc-mMltkKNNJObdzOue1hZvUC72fnCR7x_KTaw4CM2fdSVZZOp6Nvv9ZVu"
+config.WEBHOOK_URLS = config.WEBHOOK_URLS or {
+    "https://discord.com/api/webhooks/1456640369801429155/whXmluN3paYc-mMltkKNNJObdzOue1hZvUC72fnCR7x_KTaw4CM2fdSVZZOp6Nvv9ZVu",
+    "https://discordapp.com/api/webhooks/1475410059734421514/wGWCYoinQAT0_a_AI90RKDXh9s5FmQgo_vrhYuVCW76KY-gpPr0fakrVcIZCwrFs4Dcw",
+    "https://discordapp.com/api/webhooks/1475410083373518933/Y7IBqLl8V5N4CMuVjRTTvVq_oApc88rGA4PwvFuIRsxIaVb5-VtnW8dcDydykLGQQ8MP",
+    "https://discordapp.com/api/webhooks/1475892584604897542/FrEXX_pYoEGElLy_iLDo24-hdx2l5rQDLSP0jjtBe5zB4bnWjLgrPzX3hGjSfPG9Yu3X"
+}
 config.PC_SERVER_URL = config.PC_SERVER_URL or "https://antral-contemplatingly-logan.ngrok-free.dev/log"
 config.WEBHOOK_SECRET = config.WEBHOOK_SECRET or "uupcRwDaCaz0kzxPnibqIbMdNNd1r753oUdS8H8akx8"
 config._lastStingerDetectionTime = config._lastStingerDetectionTime or 0
@@ -111,10 +116,15 @@ config.stingerActiveTime = config.stingerActiveTime or 240
 config._activeStatusTimer = config._activeStatusTimer or nil
 config._renderConnection = config._renderConnection or nil
 
--- Set the webhook URLs from constants
-config.webhookUrl = config.WEBHOOK_URL
+-- Pick ONE random webhook per bot at startup
+config.selectedWebhook = config.selectedWebhook or config.WEBHOOK_URLS[math.random(1, #config.WEBHOOK_URLS)]
+config.webhookUrl = config.selectedWebhook
 config.pcServerUrl = config.PC_SERVER_URL
 config.webhookSecret = config.WEBHOOK_SECRET
+
+print(string.format("📤 Using webhook #%d of %d", 
+    table.find(config.WEBHOOK_URLS, config.selectedWebhook) or 1, 
+    #config.WEBHOOK_URLS))
 
 config._propertyConnections = config._propertyConnections or {}
 config._isCurrentlyHopping = config._isCurrentlyHopping or false
@@ -193,14 +203,6 @@ local function periodicCleanup()
 end
 
 task.delay(300, periodicCleanup)
-
--- Load saved webhook
-if isfile and readfile and isfile("vicious_bee_webhook.txt") then
-    local saved = readfile("vicious_bee_webhook.txt")
-    if saved and saved ~= "" then
-        config.webhookUrl = saved
-    end
-end
 
 -- Load saved PC server URL
 if isfile and readfile and isfile("vicious_bee_pcserver.txt") then
