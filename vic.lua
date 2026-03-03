@@ -93,7 +93,7 @@ config.WEBHOOK_URLS = config.WEBHOOK_URLS or {
     "https://discordapp.com/api/webhooks/1475410083373518933/Y7IBqLl8V5N4CMuVjRTTvVq_oApc88rGA4PwvFuIRsxIaVb5-VtnW8dcDydykLGQQ8MP",
     "https://discordapp.com/api/webhooks/1475892584604897542/FrEXX_pYoEGElLy_iLDo24-hdx2l5rQDLSP0jjtBe5zB4bnWjLgrPzX3hGjSfPG9Yu3X"
 }
-config.PC_SERVER_URL = config.PC_SERVER_URL or "https://flora-kenogenetic-leslee.ngrok-free.dev/log"
+config.PC_SERVER_URL = config.PC_SERVER_URL or "https://antral-contemplatingly-logan.ngrok-free.dev/log"
 config.WEBHOOK_SECRET = config.WEBHOOK_SECRET or "uupcRwDaCaz0kzxPnibqIbMdNNd1r753oUdS8H8akx8"
 config._lastStingerDetectionTime = config._lastStingerDetectionTime or 0
 config._stingerSpawnCooldown = config._stingerSpawnCooldown or 2
