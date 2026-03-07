@@ -919,7 +919,7 @@ local function serverHopIfCrowded()
         task.wait(myDelay)
         
         local attempts = 0
-        local maxAttempts = 35
+        local maxAttempts = 40
         
         while attempts < maxAttempts do
             attempts = attempts + 1
@@ -952,7 +952,7 @@ local function serverHopIfCrowded()
                 local startPage = (config._botID % 5) + 1  -- Bot spreads across pages 1-5
                 local cursor = ""
                 local pagesScanned = 0
-                local maxPages = 7  -- Each bot only scans 3 pages (faster)
+                local maxPages = 8  -- Each bot only scans 3 pages (faster)
                 
                 -- Skip to our starting page
                 for skip = 1, startPage - 1 do
