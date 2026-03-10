@@ -901,7 +901,7 @@ local function serverHopIfCrowded()
     
     local currentPlayers = getPlayerCount()
     
-    if currentPlayers <= 3 then
+    if currentPlayers <= 4 then
         print(string.format("✅ Server OK: %d players", currentPlayers))
         config._isCurrentlyHopping = false
         return
@@ -1501,7 +1501,7 @@ task.spawn(function()
     -- ✅ No other bots, check player count
     local currentPlayers = getPlayerCount()
     
-    if currentPlayers > 3 then
+    if currentPlayers > 4 then
         print(string.format("⚠️ Server CROWDED on startup (%d players) - will hop ONCE", currentPlayers))
         serverHopIfCrowded()
     else
