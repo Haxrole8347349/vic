@@ -955,7 +955,7 @@ local function serverHopIfCrowded()
                 task.wait(8)
             else
 
-            local pick = result.servers[math.random(1, #result.servers)]
+            local pick = result.servers[1]
 
             -- Claim it so no other bot grabs the same server
             pcall(function()
