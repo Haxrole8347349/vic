@@ -9,7 +9,7 @@ local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
 local VirtualUser = game:GetService("VirtualUser")
 
-local request = request or http_request or syn.request
+local request = http_request or request
 local player = Players.LocalPlayer
 
 -- ANTI-IDLE SYSTEM (SINGLETON-SAFE VERSION)
@@ -966,7 +966,7 @@ local function serverHopIfCrowded()
                         local skipData = HttpService:JSONDecode(skipResp.Body)
                         cursor = skipData.nextPageCursor or ""
                     end
-                    task.wait(2.5)  -- Rate limit
+                    task.wait(1.5)  -- Rate limit
                 end
                 
                 -- Now scan OUR pages
@@ -982,9 +982,15 @@ local function serverHopIfCrowded()
                     end
                     
                     local response = request({Url = url, Method = "GET"})
+
+                    if response.StatusCode == 429 then
+                        warn("Rate limited - waiting 10s")
+                        task.wait(10)
+                        response = request({Url = url, Method = "GET"})
+                    end
                     
                     if response.StatusCode ~= 200 then
-                        warn("❌ API error:", response.StatusCode)
+                        warn("❌ API error:", response.StatusCode, response.Body)
                         break
                     end
                     
@@ -1507,7 +1513,7 @@ task.spawn(function()
             print(string.format("   🤖 Bot: %s", name))
         end
         
-        -- serverHopDueToBot(botNames[1])  -- DISABLED
+        serverHopDueToBot(botNames[1])  -- Hop immediately
         return  -- Don't check player count, just hop
     end
     
@@ -1515,8 +1521,8 @@ task.spawn(function()
     local currentPlayers = getPlayerCount()
     
     if currentPlayers > 3 then
-        print(string.format("✅ Server hopping DISABLED - staying here", currentPlayers))
-        -- serverHopIfCrowded()  -- DISABLED
+        print(string.format("⚠️ Server CROWDED on startup (%d players) - will hop ONCE", currentPlayers))
+        serverHopIfCrowded()
     else
         print(string.format("✅ Server OK on startup (%d players) - STAYING HERE FOREVER", currentPlayers))
         print("📌 Bot will remain in this server until disconnected/error")
@@ -1528,7 +1534,7 @@ task.spawn(function()
         
         if newPlayer:FindFirstChild("_VBBOT") then
             print(string.format("⚠️ NEW BOT JOINED: %s", newPlayer.Name))
-            -- serverHopDueToBot(newPlayer.Name)  -- DISABLED
+            serverHopDueToBot(newPlayer.Name)
         end
     end)
 end)
