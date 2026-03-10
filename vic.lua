@@ -952,7 +952,7 @@ local function serverHopIfCrowded()
                 local startPage = (config._botID % 5) + 1  -- Bot spreads across pages 1-5
                 local cursor = ""
                 local pagesScanned = 0
-                local maxPages = 6  -- Each bot only scans 3 pages (faster)
+                local maxPages = 8  -- Each bot only scans 3 pages (faster)
                 
                 -- Skip to our starting page
                 for skip = 1, startPage - 1 do
@@ -961,12 +961,12 @@ local function serverHopIfCrowded()
                         placeId
                     )
                     
-                    local skipResp = request({Url = skipUrl, Method = "GET"})
+                    local skipResp = {StatusCode = 200, Body = game:HttpGet(skipUrl)}
                     if skipResp.StatusCode == 200 then
                         local skipData = HttpService:JSONDecode(skipResp.Body)
                         cursor = skipData.nextPageCursor or ""
                     end
-                    task.wait(3)  -- Rate limit
+                    task.wait(2.5)  -- Rate limit
                 end
                 
                 -- Now scan OUR pages
@@ -981,16 +981,10 @@ local function serverHopIfCrowded()
                         url = url .. "&cursor=" .. cursor
                     end
                     
-                    local response = request({Url = url, Method = "GET"})
-
-                    if response.StatusCode == 429 then
-                        warn("Rate limited - waiting 10s")
-                        task.wait(10)
-                        response = request({Url = url, Method = "GET"})
-                    end
+                    local response = {StatusCode = 200, Body = game:HttpGet(url)}
                     
                     if response.StatusCode ~= 200 then
-                        warn("❌ API error:", response.StatusCode, response.Body)
+                        warn("❌ API error:", response.StatusCode)
                         break
                     end
                     
