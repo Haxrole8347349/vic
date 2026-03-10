@@ -952,7 +952,7 @@ local function serverHopIfCrowded()
                 local startPage = (config._botID % 5) + 1  -- Bot spreads across pages 1-5
                 local cursor = ""
                 local pagesScanned = 0
-                local maxPages = 8  -- Each bot only scans 3 pages (faster)
+                local maxPages = 6  -- Each bot only scans 3 pages (faster)
                 
                 -- Skip to our starting page
                 for skip = 1, startPage - 1 do
@@ -966,7 +966,7 @@ local function serverHopIfCrowded()
                         local skipData = HttpService:JSONDecode(skipResp.Body)
                         cursor = skipData.nextPageCursor or ""
                     end
-                    task.wait(1.5)  -- Rate limit
+                    task.wait(3)  -- Rate limit
                 end
                 
                 -- Now scan OUR pages
