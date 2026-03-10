@@ -893,7 +893,7 @@ local function serverHopIfCrowded()
     end
     
     -- Prevent spam
-    if hopping or (now - lastHopAttempt < 5) then
+    if hopping or (now - lastHopAttempt < 4) then
         return
     end
     
@@ -901,7 +901,7 @@ local function serverHopIfCrowded()
     
     local currentPlayers = getPlayerCount()
     
-    if currentPlayers <= 4 then
+    if currentPlayers <= 3 then
         print(string.format("✅ Server OK: %d players", currentPlayers))
         config._isCurrentlyHopping = false
         return
