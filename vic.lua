@@ -1507,7 +1507,7 @@ task.spawn(function()
             print(string.format("   🤖 Bot: %s", name))
         end
         
-        serverHopDueToBot(botNames[1])  -- Hop immediately
+        -- serverHopDueToBot(botNames[1])  -- DISABLED
         return  -- Don't check player count, just hop
     end
     
@@ -1515,8 +1515,8 @@ task.spawn(function()
     local currentPlayers = getPlayerCount()
     
     if currentPlayers > 3 then
-        print(string.format("⚠️ Server CROWDED on startup (%d players) - will hop ONCE", currentPlayers))
-        serverHopIfCrowded()
+        print(string.format("✅ Server hopping DISABLED - staying here", currentPlayers))
+        -- serverHopIfCrowded()  -- DISABLED
     else
         print(string.format("✅ Server OK on startup (%d players) - STAYING HERE FOREVER", currentPlayers))
         print("📌 Bot will remain in this server until disconnected/error")
@@ -1528,7 +1528,7 @@ task.spawn(function()
         
         if newPlayer:FindFirstChild("_VBBOT") then
             print(string.format("⚠️ NEW BOT JOINED: %s", newPlayer.Name))
-            serverHopDueToBot(newPlayer.Name)
+            -- serverHopDueToBot(newPlayer.Name)  -- DISABLED
         end
     end)
 end)
