@@ -9,122 +9,7 @@ local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
 local VirtualUser = game:GetService("VirtualUser")
 
-local request = http_request or request
--- ✅ SHARED SERVER POOL SYSTEM V2 (with bot collision prevention)
-_G.VBSharedServerPool = _G.VBSharedServerPool or {}
-_G.VBPoolTimestamp = _G.VBPoolTimestamp or 0
-_G.VBPoolRefreshLock = _G.VBPoolRefreshLock or false
-_G.VBServerClaims = _G.VBServerClaims or {}  -- Track which bot claimed which server
-
-local function cleanupStaleClaims()
-    local now = tick()
-    for jobId, claimTime in pairs(_G.VBServerClaims) do
-        -- Clear claims older than 30 seconds (bot probably finished teleporting or failed)
-        if now - claimTime > 30 then
-            _G.VBServerClaims[jobId] = nil
-        end
-    end
-end
-
-local function refreshSharedPool()
-    -- Better race condition handling
-    if _G.VBPoolRefreshLock then 
-        return false 
-    end
-    
-    _G.VBPoolRefreshLock = true
-    
-    local newPool = {}
-    local placeId = game.PlaceId
-    
-    print("🔄 Bot is refreshing shared server pool...")
-    
-    -- Scan 5 pages
-    local cursor = ""
-    for page = 1, 5 do
-        local url = string.format(
-            "https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&excludeFullGames=true&limit=100",
-            placeId
-        )
-        if cursor ~= "" then
-            url = url .. "&cursor=" .. cursor
-        end
-        
-        local success, response = pcall(function()
-            return {StatusCode = 200, Body = game:HttpGet(url)}
-        end)
-        
-        if success and response.StatusCode == 200 then
-            local data = HttpService:JSONDecode(response.Body)
-            
-            for _, server in ipairs(data.data) do
-                -- Only add servers with 1-2 players that aren't our current server
-                if server.playing >= 1 and server.playing <= 2 and server.id ~= game.JobId then
-                    table.insert(newPool, {
-                        jobId = server.id,
-                        players = server.playing
-                    })
-                end
-            end
-            
-            cursor = data.nextPageCursor or ""
-            if cursor == "" then break end
-        else
-            break
-        end
-        
-        task.wait(3)
-    end
-    
-    _G.VBSharedServerPool = newPool
-    _G.VBPoolTimestamp = tick()
-    _G.VBPoolRefreshLock = false
-    
-    print(string.format("✅ Pool refreshed: %d servers available", #newPool))
-    return true
-end
-
-local function getSharedServerPool()
-    cleanupStaleClaims()
-    
-    local poolAge = tick() - _G.VBPoolTimestamp
-    
-    -- Pool is stale or empty - refresh it
-    if poolAge > 120 or #_G.VBSharedServerPool == 0 then
-        local didRefresh = refreshSharedPool()
-        
-        -- If we didn't do the refresh (another bot is), wait for it
-        if not didRefresh then
-            local waited = 0
-            while _G.VBPoolRefreshLock and waited < 60 do
-                task.wait(0.5)
-                waited = waited + 0.5
-            end
-        end
-    end
-    
-    -- Filter out servers that are already claimed by other bots OR have bot markers
-    local availableServers = {}
-    
-    for _, serverData in ipairs(_G.VBSharedServerPool) do
-        local jobId = serverData.jobId
-        
-        -- Skip if another bot claimed this server recently
-        if not _G.VBServerClaims[jobId] then
-            table.insert(availableServers, serverData)
-        end
-    end
-    
-    print(string.format("♻️ Pool: %d total, %d available after filtering claims", 
-        #_G.VBSharedServerPool, #availableServers))
-    
-    return availableServers
-end
-
-local function claimServer(jobId)
-    _G.VBServerClaims[jobId] = tick()
-    print(string.format("🎯 Claimed server %s", jobId:sub(1, 12)))
-end
+local request = (syn and syn.request) or http_request or request
 local player = Players.LocalPlayer
 
 -- ANTI-IDLE SYSTEM (SINGLETON-SAFE VERSION)
@@ -255,7 +140,7 @@ local function generateBotID()
 end
 
 config._botID = config._botID or generateBotID()
-config._staggerDelay = math.random(0, 10)  -- Minimal stagger (shared pool = no API spam)
+config._staggerDelay = (config._botID % 30)  -- 0-30 second spread
 print(string.format("🤖 Bot ID: %d | Stagger Delay: %ds", config._botID, config._staggerDelay))
 
 local function periodicCleanup()
@@ -1001,11 +886,13 @@ local lastHopAttempt = 0
 local function serverHopIfCrowded()
     local now = tick()
     
+    -- CRITICAL: Only one hop at a time per bot
     if config._isCurrentlyHopping then
-        print("⏳ Already hopping - skipping")
+        print("⏳ Already hopping - skipping duplicate request")
         return
     end
     
+    -- Prevent spam
     if hopping or (now - lastHopAttempt < 5) then
         return
     end
@@ -1023,18 +910,27 @@ local function serverHopIfCrowded()
     lastHopAttempt = now
     hopping = true
     
-    print(string.format("🔄 CROWDED (%d players) - Bot %d using SHARED POOL...", currentPlayers, config._botID))
+    print(string.format("🔄 CROWDED (%d players) - Bot %d initiating hop...", currentPlayers, config._botID))
     
     task.spawn(function()
-        -- Tiny random delay to prevent all 60 bots teleporting simultaneously
-        local myDelay = math.random(1, 5)
+        -- ✅ STAGGERED START: Each bot waits its turn
+        local myDelay = config._staggerDelay + math.random(0, 5)  -- Add 0-5s randomness
+        print(string.format("⏳ Waiting %ds before scanning (Bot %d)...", myDelay, config._botID))
         task.wait(myDelay)
         
         local attempts = 0
-        local maxAttempts = 20
+        local maxAttempts = 40
         
         while attempts < maxAttempts do
             attempts = attempts + 1
+            config._totalHopAttempts = config._totalHopAttempts + 1
+            
+            if config._totalHopAttempts >= config.MAX_HOP_ATTEMPTS then
+                warn("🛑 Max hop attempts reached")
+                config._isCurrentlyHopping = false
+                hopping = false
+                return
+            end
             
             -- Recheck player count
             currentPlayers = getPlayerCount()
@@ -1045,58 +941,114 @@ local function serverHopIfCrowded()
                 return
             end
             
-            print(string.format("🎯 Bot %d: Attempt %d/%d (using shared pool)", config._botID, attempts, maxAttempts))
+            print(string.format("🎯 Bot %d: Attempt %d/%d", config._botID, attempts, maxAttempts))
             
-            -- GET SERVERS FROM SHARED POOL (NO API CALLS!)
-            local matchingServers = getSharedServerPool()
+            -- ✅ BUILD OWN SERVER POOL
+            local success, matchingServers = pcall(function()
+                local placeId = game.PlaceId
+                local myServers = {}
+                
+                -- ✅ Each bot scans different pages based on Bot ID
+                local startPage = (config._botID % 5) + 1  -- Bot spreads across pages 1-5
+                local cursor = ""
+                local pagesScanned = 0
+                local maxPages = 8  -- Each bot only scans 3 pages (faster)
+                
+                -- Skip to our starting page
+                for skip = 1, startPage - 1 do
+                    local skipUrl = string.format(
+                        "https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&excludeFullGames=true&limit=100",
+                        placeId
+                    )
+                    
+                    local skipResp = request({Url = skipUrl, Method = "GET"})
+                    if skipResp.StatusCode == 200 then
+                        local skipData = HttpService:JSONDecode(skipResp.Body)
+                        cursor = skipData.nextPageCursor or ""
+                    end
+                    task.wait(2.5)  -- Rate limit
+                end
+                
+                -- Now scan OUR pages
+                while pagesScanned < maxPages do
+                    pagesScanned = pagesScanned + 1
+                    
+                    local url = string.format(
+                        "https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&excludeFullGames=true&limit=100",
+                        placeId
+                    )
+                    if cursor ~= "" then
+                        url = url .. "&cursor=" .. cursor
+                    end
+                    
+                    local response = request({Url = url, Method = "GET"})
+                    
+                    if response.StatusCode ~= 200 then
+                        warn("❌ API error:", response.StatusCode)
+                        break
+                    end
+                    
+                    local data = HttpService:JSONDecode(response.Body)
+                    
+                    for _, server in ipairs(data.data) do
+                        local playing = server.playing
+                        local jobId = server.id
+                        
+                        if playing >= 1 and playing <= 2 and jobId ~= game.JobId then
+                            table.insert(myServers, {jobId = jobId, players = playing})
+                        end
+                    end
+                    
+                    cursor = data.nextPageCursor or ""
+                    if cursor == "" then break end
+                    
+                    task.wait(2.5)
+                end
+                
+                return myServers
+            end)
             
-            if matchingServers and #matchingServers > 0 then
-                -- Pick random server and CLAIM IT so other bots don't pick it
+            if success and matchingServers and #matchingServers > 0 then
+                -- ✅ Pick random from MY pool
                 local randomServer = matchingServers[math.random(1, #matchingServers)]
-                
-                -- Claim this server immediately to prevent other bots from picking it
-                claimServer(randomServer.jobId)
-                
-                print(string.format("✅ Bot %d: Picked server with %d players (pool had %d available)", 
-                    config._botID, randomServer.players, #matchingServers))
+                print(string.format("✅ Bot %d found %d servers, picked: %s (%d players)", 
+                    config._botID, #matchingServers, randomServer.jobId:sub(1, 12), randomServer.players))
                 
                 sendWebhook(
-                    "🔄 Server Hopping (Shared Pool)",
-                    string.format("Bot %d hopping to server with **%d players**\n\nPool had **%d** available servers", config._botID, randomServer.players, #matchingServers),
+                    "🔄 Server Hopping",
+                    string.format("Bot %d hopping to server with **%d players**", config._botID, randomServer.players),
                     0xFFA500,
                     {
                         { name = "👥 Target Players", value = tostring(randomServer.players), inline = true },
-                        { name = "🤖 Bot ID", value = tostring(config._botID), inline = true },
-                        { name = "📊 Available", value = tostring(#matchingServers), inline = true }
+                        { name = "🤖 Bot ID", value = tostring(config._botID), inline = true }
                     }
                 )
                 
-                task.wait(1)
+                task.wait(2)
                 
+                -- ✅ SINGLE TELEPORT METHOD (most reliable)
                 local tpSuccess = pcall(function()
-                    TeleportService:TeleportToPlaceInstance(game.PlaceId, randomServer.jobId)
+                    game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, randomServer.jobId)
                 end)
                 
                 if tpSuccess then
                     print("✅ Teleport initiated!")
-                    task.wait(20)
+                    task.wait(20)  -- Wait for teleport
                     
+                    -- If still here after 20s, try next
                     if player and player.Parent then
-                        warn("⚠️ Teleport failed - unclaiming server")
-                        _G.VBServerClaims[randomServer.jobId] = nil  -- Release claim
+                        warn("⚠️ Teleport didn't work - trying next")
                         task.wait(3)
                     else
-                        return
+                        return  -- Success!
                     end
                 else
-                    warn("❌ Teleport error - unclaiming server")
-                    _G.VBServerClaims[randomServer.jobId] = nil  -- Release claim
+                    warn("❌ Teleport failed")
                     task.wait(5)
                 end
             else
-                warn("❌ Shared pool empty - forcing refresh")
-                _G.VBPoolTimestamp = 0  -- Force refresh
-                task.wait(10)
+                warn("❌ No servers found in my pool")
+                task.wait(5)
             end
         end
         
