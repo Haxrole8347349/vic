@@ -9,7 +9,7 @@ local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
 local VirtualUser = game:GetService("VirtualUser")
 
-local request = (syn and syn.request) or http_request or request
+local request = request or http_request or syn.request
 local player = Players.LocalPlayer
 
 -- ANTI-IDLE SYSTEM (SINGLETON-SAFE VERSION)
@@ -893,7 +893,7 @@ local function serverHopIfCrowded()
     end
     
     -- Prevent spam
-    if hopping or (now - lastHopAttempt < 4) then
+    if hopping or (now - lastHopAttempt < 5) then
         return
     end
     
@@ -943,79 +943,97 @@ local function serverHopIfCrowded()
             
             print(string.format("🎯 Bot %d: Attempt %d/%d", config._botID, attempts, maxAttempts))
             
-            -- 🖥️ FETCH FROM LOCAL POOL SERVER (no Roblox API calls)
-            local ok, result = pcall(function()
-                local resp = request({ Url = "http://127.0.0.1:5000/servers", Method = "GET" })
-                if resp.StatusCode ~= 200 then return nil end
-                return HttpService:JSONDecode(resp.Body)
+            -- ✅ BUILD OWN SERVER POOL
+            local success, matchingServers = pcall(function()
+                local placeId = game.PlaceId
+                local myServers = {}
+                
+                local cursor = ""
+                local pagesScanned = 0
+                local maxPages = 1  -- Always page 1 only
+                -- No skip loop needed - always starts from page 1
+                task.wait(4)
+                
+                -- Now scan OUR pages
+                while pagesScanned < maxPages do
+                    pagesScanned = pagesScanned + 1
+                    
+                    local url = string.format(
+                        "https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&excludeFullGames=true&limit=100",
+                        placeId
+                    )
+                    if cursor ~= "" then
+                        url = url .. "&cursor=" .. cursor
+                    end
+                    
+                    local response = request({Url = url, Method = "GET"})
+                    
+                    if response.StatusCode ~= 200 then
+                        warn("❌ API error:", response.StatusCode)
+                        break
+                    end
+                    
+                    local data = HttpService:JSONDecode(response.Body)
+                    
+                    for _, server in ipairs(data.data) do
+                        local playing = server.playing
+                        local jobId = server.id
+                        
+                        if playing >= 1 and playing <= 2 and jobId ~= game.JobId then
+                            table.insert(myServers, {jobId = jobId, players = playing})
+                        end
+                    end
+                    
+                    cursor = data.nextPageCursor or ""
+                    if cursor == "" then break end
+                    
+                    task.wait(2.5)
+                end
+                
+                return myServers
             end)
-
-            if not ok or not result or not result.servers or #result.servers == 0 then
-                warn("❌ Pool empty or unreachable, waiting 8s...")
-                task.wait(8)
-            else
-
-            local pick = result.servers[1]
-
-            -- Claim it so no other bot grabs the same server
-            pcall(function()
-                request({
-                    Url    = "http://127.0.0.1:5000/claim",
-                    Method = "POST",
-                    Headers = { ["Content-Type"] = "application/json" },
-                    Body   = HttpService:JSONEncode({ jobId = pick.jobId, bot = player.Name })
-                })
-            end)
-
-            print(string.format("🎯 Hopping to %s (%d players) | Pool: %d available",
-                pick.jobId:sub(1, 12), pick.players, #result.servers))
-
-            sendWebhook(
-                "🔄 Server Hopping",
-                string.format("Hopping to server with **%d players**\nPool had **%d** available servers", pick.players, #result.servers),
-                0xFFA500,
-                {
-                    { name = "👥 Target Players", value = tostring(pick.players),     inline = true },
-                    { name = "📊 Pool Size",       value = tostring(#result.servers), inline = true },
-                    { name = "🤖 Bot",             value = player.Name,               inline = true }
-                }
-            )
-
-            task.wait(1)
-
-            local tpSuccess = pcall(function()
-                game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, pick.jobId)
-            end)
-
-            if tpSuccess then
-                print("✅ Teleport initiated!")
-                task.wait(20)
-                if player and player.Parent then
-                    warn("⚠️ Teleport didn't work, unclaiming...")
-                    pcall(function()
-                        request({
-                            Url    = "http://127.0.0.1:5000/unclaim",
-                            Method = "POST",
-                            Headers = { ["Content-Type"] = "application/json" },
-                            Body   = HttpService:JSONEncode({ jobId = pick.jobId, bot = player.Name })
-                        })
-                    end)
-                    task.wait(3)
+            
+            if success and matchingServers and #matchingServers > 0 then
+                -- ✅ Pick random from MY pool
+                local randomServer = matchingServers[math.random(1, #matchingServers)]
+                print(string.format("✅ Bot %d found %d servers, picked: %s (%d players)", 
+                    config._botID, #matchingServers, randomServer.jobId:sub(1, 12), randomServer.players))
+                
+                sendWebhook(
+                    "🔄 Server Hopping",
+                    string.format("Bot %d hopping to server with **%d players**", config._botID, randomServer.players),
+                    0xFFA500,
+                    {
+                        { name = "👥 Target Players", value = tostring(randomServer.players), inline = true },
+                        { name = "🤖 Bot ID", value = tostring(config._botID), inline = true }
+                    }
+                )
+                
+                task.wait(2)
+                
+                -- ✅ SINGLE TELEPORT METHOD (most reliable)
+                local tpSuccess = pcall(function()
+                    game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, randomServer.jobId)
+                end)
+                
+                if tpSuccess then
+                    print("✅ Teleport initiated!")
+                    task.wait(20)  -- Wait for teleport
+                    
+                    -- If still here after 20s, try next
+                    if player and player.Parent then
+                        warn("⚠️ Teleport didn't work - trying next")
+                        task.wait(3)
+                    else
+                        return  -- Success!
+                    end
                 else
-                    return -- success
+                    warn("❌ Teleport failed")
+                    task.wait(5)
                 end
             else
-                warn("❌ Teleport error, unclaiming...")
-                pcall(function()
-                    request({
-                        Url    = "http://127.0.0.1:5000/unclaim",
-                        Method = "POST",
-                        Headers = { ["Content-Type"] = "application/json" },
-                        Body   = HttpService:JSONEncode({ jobId = pick.jobId, bot = player.Name })
-                    })
-                end)
+                warn("❌ No servers found in my pool")
                 task.wait(5)
-            end
             end
         end
         
@@ -1024,26 +1042,6 @@ local function serverHopIfCrowded()
         config._isCurrentlyHopping = false
     end)
 end
-
--- Heartbeat so dashboard shows bot as alive
-task.spawn(function()
-    while true do
-        pcall(function()
-            request({
-                Url    = "http://127.0.0.1:5000/heartbeat",
-                Method = "POST",
-                Headers = { ["Content-Type"] = "application/json" },
-                Body   = HttpService:JSONEncode({
-                    bot    = player.Name,
-                    status = config.isRunning and "Running" or "Stopped",
-                    field  = config.currentField or "None",
-                    jobId  = game.JobId
-                })
-            })
-        end)
-        task.wait(30)
-    end
-end)
 
 local function createGUI()
     if CoreGui:FindFirstChild("ViciousBeeHunterGUI") then
@@ -1501,7 +1499,7 @@ task.spawn(function()
     -- ✅ No other bots, check player count
     local currentPlayers = getPlayerCount()
     
-    if currentPlayers > 4 then
+    if currentPlayers > 3 then
         print(string.format("⚠️ Server CROWDED on startup (%d players) - will hop ONCE", currentPlayers))
         serverHopIfCrowded()
     else
