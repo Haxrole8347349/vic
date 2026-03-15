@@ -767,6 +767,7 @@ local function setupAutoReconnect()
     
     local function attemptRejoin(reason)
         if isReconnecting then return end
+        if config._isCurrentlyHopping then return end
         isReconnecting = true
         
         print(string.format("🔄 Reconnecting due to: %s", reason))
