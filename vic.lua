@@ -1018,7 +1018,7 @@ local function serverHopIfCrowded()
                 {
                     { name = "🤖 Bot ID", value = tostring(config._botID), inline = true },
                     { name = "🔁 Rounds", value = tostring(maxRounds), inline = true },
-                    { name = "🔁 Attempts Per Round", value = "5", inline = true }
+                    { name = "🔁 Attempts Per Round", value = "7", inline = true }
                 }
             )
         end
