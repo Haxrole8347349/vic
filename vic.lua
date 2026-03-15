@@ -950,7 +950,7 @@ local function serverHopIfCrowded()
             print(string.format("✅ Bot %d: Round %d pool has %d servers", config._botID, round, #serverPool))
             
             -- === Try up to 5 servers from this pool ===
-            local maxRetries = 7
+            local maxRetries = 5
             local tried = {}
             
             for attempt = 1, maxRetries do
@@ -1018,7 +1018,7 @@ local function serverHopIfCrowded()
                 {
                     { name = "🤖 Bot ID", value = tostring(config._botID), inline = true },
                     { name = "🔁 Rounds", value = tostring(maxRounds), inline = true },
-                    { name = "🔁 Attempts Per Round", value = "7", inline = true }
+                    { name = "🔁 Attempts Per Round", value = "5", inline = true }
                 }
             )
         end
