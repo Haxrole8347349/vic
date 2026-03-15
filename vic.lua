@@ -910,107 +910,115 @@ local function serverHopIfCrowded()
         print(string.format("⏳ Waiting %ds before scanning (Bot %d)...", myDelay, config._botID))
         task.wait(myDelay)
         
-        -- === STEP 1: Build server pool ONCE ===
-        local serverPool = {}
-        local poolSuccess = pcall(function()
-            local placeId = game.PlaceId
-            task.wait(4)
-            
-            local url = string.format(
-                "https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&excludeFullGames=true&limit=100",
-                placeId
-            )
-            
-            local response = request({ Url = url, Method = "GET" })
-            if response.StatusCode ~= 200 then
-                warn("❌ API error:", response.StatusCode)
-                return
-            end
-            
-            local data = HttpService:JSONDecode(response.Body)
-            for _, server in ipairs(data.data) do
-                if server.playing >= 1 and server.playing <= 2 and server.id ~= game.JobId then
-                    table.insert(serverPool, { jobId = server.id, players = server.playing })
-                end
-            end
-        end)
-        
-        if not poolSuccess or #serverPool == 0 then
-            warn("❌ Failed to build server pool or pool is empty")
-            hopping = false
-            config._isCurrentlyHopping = false
-            return
-        end
-        
-        print(string.format("✅ Bot %d: Built pool of %d servers", config._botID, #serverPool))
-        
-        -- === STEP 2: Try up to 5 servers FROM THE POOL (no re-query) ===
-        local maxRetries = 5
-        local tried = {}
+        local maxRounds = 25
         local success = false
         
-        for attempt = 1, maxRetries do
-            -- Pick a random untried server
-            local available = {}
-            for i, srv in ipairs(serverPool) do
-                if not tried[i] then
-                    table.insert(available, { index = i, data = srv })
+        for round = 1, maxRounds do
+            if success then break end
+            
+            -- === Build fresh pool each round ===
+            local serverPool = {}
+            local poolSuccess = pcall(function()
+                local placeId = game.PlaceId
+                task.wait(4)
+                
+                local url = string.format(
+                    "https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&excludeFullGames=true&limit=100",
+                    placeId
+                )
+                
+                local response = request({ Url = url, Method = "GET" })
+                if response.StatusCode ~= 200 then
+                    warn("❌ API error:", response.StatusCode)
+                    return
                 end
-            end
-            
-            if #available == 0 then
-                warn("⚠️ Pool exhausted after " .. attempt - 1 .. " attempts")
-                break
-            end
-            
-            local pick = available[math.random(1, #available)]
-            tried[pick.index] = true
-            local target = pick.data
-            
-            print(string.format("🎯 Bot %d: Attempt %d/%d → %s (%d players)",
-                config._botID, attempt, maxRetries, target.jobId:sub(1, 12), target.players))
-            
-            sendWebhook(
-                "🔄 Server Hop Attempt",
-                string.format("Attempt **%d/%d** → server with **%d players**", attempt, maxRetries, target.players),
-                0xFFA500,
-                {
-                    { name = "🤖 Bot ID", value = tostring(config._botID), inline = true },
-                    { name = "👥 Target Players", value = tostring(target.players), inline = true },
-                    { name = "🔁 Attempt", value = attempt .. "/" .. maxRetries, inline = true }
-                }
-            )
-            
-            local tpSuccess = pcall(function()
-                game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, target.jobId)
+                
+                local data = HttpService:JSONDecode(response.Body)
+                for _, server in ipairs(data.data) do
+                    if server.playing >= 1 and server.playing <= 2 and server.id ~= game.JobId then
+                        table.insert(serverPool, { jobId = server.id, players = server.playing })
+                    end
+                end
             end)
             
-            if tpSuccess then
-                -- Wait to see if teleport actually worked
-                task.wait(20)
+            if not poolSuccess or #serverPool == 0 then
+                warn(string.format("❌ Round %d: Failed to build pool or empty", round))
+                task.wait(10)
+                continue
+            end
+            
+            print(string.format("✅ Bot %d: Round %d pool has %d servers", config._botID, round, #serverPool))
+            
+            -- === Try up to 5 servers from this pool ===
+            local maxRetries = 7
+            local tried = {}
+            
+            for attempt = 1, maxRetries do
+                local available = {}
+                for i, srv in ipairs(serverPool) do
+                    if not tried[i] then
+                        table.insert(available, { index = i, data = srv })
+                    end
+                end
                 
-                if not player or not player.Parent then
-                    success = true
-                    return -- Teleported successfully
+                if #available == 0 then
+                    warn(string.format("⚠️ Round %d pool exhausted, re-pooling...", round))
+                    break
+                end
+                
+                local pick = available[math.random(1, #available)]
+                tried[pick.index] = true
+                local target = pick.data
+                
+                print(string.format("🎯 Bot %d: Round %d Attempt %d/%d → %s (%d players)",
+                    config._botID, round, attempt, maxRetries, target.jobId:sub(1, 12), target.players))
+                
+                sendWebhook(
+                    "🔄 Server Hop Attempt",
+                    string.format("Round **%d** Attempt **%d/%d** → server with **%d players**", round, attempt, maxRetries, target.players),
+                    0xFFA500,
+                    {
+                        { name = "🤖 Bot ID", value = tostring(config._botID), inline = true },
+                        { name = "👥 Target Players", value = tostring(target.players), inline = true },
+                        { name = "🔁 Round/Attempt", value = round .. "/" .. attempt, inline = true }
+                    }
+                )
+                
+                local tpSuccess = pcall(function()
+                    game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, target.jobId)
+                end)
+                
+                if tpSuccess then
+                    task.wait(12)
+                    if not player or not player.Parent then
+                        success = true
+                        return
+                    else
+                        warn(string.format("⚠️ Round %d Attempt %d: Teleport didn't complete", round, attempt))
+                        task.wait(3)
+                    end
                 else
-                    warn(string.format("⚠️ Attempt %d: Teleport didn't complete, trying next...", attempt))
+                    warn(string.format("❌ Round %d Attempt %d: TeleportToPlaceInstance failed", round, attempt))
                     task.wait(3)
                 end
-            else
-                warn(string.format("❌ Attempt %d: TeleportToPlaceInstance failed", attempt))
-                task.wait(3)
+            end
+            
+            -- Wait between re-pool rounds to avoid rate limiting
+            if not success and round < maxRounds then
+                task.wait(15)
             end
         end
         
         if not success then
-            warn(string.format("⚠️ Bot %d: All %d pool attempts exhausted, giving up", config._botID, maxRetries))
+            warn(string.format("⚠️ Bot %d: All rounds exhausted, giving up", config._botID))
             sendWebhook(
                 "❌ Hop Failed",
-                string.format("Bot **%d** exhausted all **%d** pool attempts without success.", config._botID, maxRetries),
+                string.format("Bot **%d** exhausted all rounds without success.", config._botID),
                 0xFF0000,
                 {
                     { name = "🤖 Bot ID", value = tostring(config._botID), inline = true },
-                    { name = "🔁 Attempts", value = tostring(maxRetries), inline = true }
+                    { name = "🔁 Rounds", value = tostring(maxRounds), inline = true },
+                    { name = "🔁 Attempts Per Round", value = "5", inline = true }
                 }
             )
         end
