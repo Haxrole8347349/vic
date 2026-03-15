@@ -140,7 +140,7 @@ local function generateBotID()
 end
 
 config._botID = config._botID or generateBotID()
-config._staggerDelay = (config._botID % 60)  -- 0-30 second spread
+config._staggerDelay = (config._botID % 60)*2  -- 0-30 second spread
 print(string.format("🤖 Bot ID: %d | Stagger Delay: %ds", config._botID, config._staggerDelay))
 
 local function periodicCleanup()
@@ -910,7 +910,7 @@ local function serverHopIfCrowded()
         print(string.format("⏳ Waiting %ds before scanning (Bot %d)...", myDelay, config._botID))
         task.wait(myDelay)
         
-        local maxRounds = 8
+        local maxRounds = 5
         local success = false
         
         for round = 1, maxRounds do
@@ -950,7 +950,7 @@ local function serverHopIfCrowded()
             print(string.format("✅ Bot %d: Round %d pool has %d servers", config._botID, round, #serverPool))
             
             -- Try up to 5 servers from this pool
-            local maxRetries = 3
+            local maxRetries = 7
             local tried = {}
             
             for attempt = 1, maxRetries do
