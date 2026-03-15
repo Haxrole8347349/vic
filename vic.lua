@@ -989,7 +989,7 @@ local function serverHopIfCrowded()
                 end)
                 
                 if tpSuccess then
-                    task.wait(12)
+                    task.wait(30)
                     if not player or not player.Parent then
                         success = true
                         return
