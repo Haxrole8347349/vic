@@ -910,7 +910,7 @@ local function serverHopIfCrowded()
         print(string.format("⏳ Waiting %ds before scanning (Bot %d)...", myDelay, config._botID))
         task.wait(myDelay)
         
-        local maxRounds = 10
+        local maxRounds = 8
         local success = false
         
         for round = 1, maxRounds do
