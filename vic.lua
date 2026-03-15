@@ -991,16 +991,22 @@ local function serverHopIfCrowded()
                 
                 if tpSuccess then
                     task.wait(30)
+                    if isReconnecting then
+                        isReconnecting = false  -- reconnect got stuck, cancel it
+                        print("⚠️ Reconnect was stuck, cancelled - trying next server")
+                    end
                     if not player or not player.Parent then
                         success = true
                         return
                     else
                         warn(string.format("⚠️ Round %d Attempt %d: Teleport didn't complete", round, attempt))
-                        task.wait(3)
+                        task.wait(30)
+                        isReconnecting = false
                     end
                 else
                     warn(string.format("❌ Round %d Attempt %d: TeleportToPlaceInstance failed", round, attempt))
-                    task.wait(3)
+                    task.wait(30)
+                    isReconnecting = false
                 end
             end
             
