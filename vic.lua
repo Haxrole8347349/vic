@@ -950,7 +950,7 @@ local function serverHopIfCrowded()
             print(string.format("✅ Bot %d: Round %d pool has %d servers", config._botID, round, #serverPool))
             
             -- Try up to 5 servers from this pool
-            local maxRetries = 5
+            local maxRetries = 3
             local tried = {}
             
             for attempt = 1, maxRetries do
