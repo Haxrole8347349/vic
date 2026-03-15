@@ -767,7 +767,6 @@ local function setupAutoReconnect()
     
     local function attemptRejoin(reason)
         if isReconnecting then return end
-        if config._isCurrentlyHopping then return end
         isReconnecting = true
         
         print(string.format("🔄 Reconnecting due to: %s", reason))
@@ -917,7 +916,7 @@ local function serverHopIfCrowded()
         for round = 1, maxRounds do
             if success then break end
             
-            -- === Build fresh pool each round ===
+            -- Build fresh pool each round
             local serverPool = {}
             local poolSuccess = pcall(function()
                 local placeId = game.PlaceId
@@ -950,11 +949,18 @@ local function serverHopIfCrowded()
             
             print(string.format("✅ Bot %d: Round %d pool has %d servers", config._botID, round, #serverPool))
             
-            -- === Try up to 5 servers from this pool ===
+            -- Try up to 5 servers from this pool
             local maxRetries = 5
             local tried = {}
             
             for attempt = 1, maxRetries do
+                -- Check if server is now OK
+                if getPlayerCount() <= 3 then
+                    print("✅ Server OK mid-hop, stopping")
+                    success = true
+                    break
+                end
+                
                 local available = {}
                 for i, srv in ipairs(serverPool) do
                     if not tried[i] then
@@ -991,41 +997,33 @@ local function serverHopIfCrowded()
                 
                 if tpSuccess then
                     task.wait(30)
-                    if isReconnecting then
-                        isReconnecting = false  -- reconnect got stuck, cancel it
-                        print("⚠️ Reconnect was stuck, cancelled - trying next server")
-                    end
                     if not player or not player.Parent then
                         success = true
                         return
                     else
                         warn(string.format("⚠️ Round %d Attempt %d: Teleport didn't complete", round, attempt))
                         task.wait(30)
-                        isReconnecting = false
                     end
                 else
-                    warn(string.format("❌ Round %d Attempt %d: TeleportToPlaceInstance failed", round, attempt))
+                    warn(string.format("❌ Round %d Attempt %d: Failed", round, attempt))
                     task.wait(30)
-                    isReconnecting = false
                 end
             end
             
-            -- Wait between re-pool rounds to avoid rate limiting
             if not success and round < maxRounds then
                 task.wait(15)
             end
         end
         
         if not success then
-            warn(string.format("⚠️ Bot %d: All rounds exhausted, giving up", config._botID))
+            warn(string.format("⚠️ Bot %d: All rounds exhausted", config._botID))
             sendWebhook(
                 "❌ Hop Failed",
                 string.format("Bot **%d** exhausted all rounds without success.", config._botID),
                 0xFF0000,
                 {
                     { name = "🤖 Bot ID", value = tostring(config._botID), inline = true },
-                    { name = "🔁 Rounds", value = tostring(maxRounds), inline = true },
-                    { name = "🔁 Attempts Per Round", value = "5", inline = true }
+                    { name = "🔁 Rounds", value = tostring(maxRounds), inline = true }
                 }
             )
         end
