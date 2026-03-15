@@ -140,7 +140,7 @@ local function generateBotID()
 end
 
 config._botID = config._botID or generateBotID()
-config._staggerDelay = (config._botID % 30)  -- 0-30 second spread
+config._staggerDelay = (config._botID % 60)  -- 0-30 second spread
 print(string.format("🤖 Bot ID: %d | Stagger Delay: %ds", config._botID, config._staggerDelay))
 
 local function periodicCleanup()
@@ -886,158 +886,148 @@ local lastHopAttempt = 0
 local function serverHopIfCrowded()
     local now = tick()
     
-    -- CRITICAL: Only one hop at a time per bot
     if config._isCurrentlyHopping then
         print("⏳ Already hopping - skipping duplicate request")
         return
     end
     
-    -- Prevent spam
     if hopping or (now - lastHopAttempt < 5) then
         return
     end
     
-    config._isCurrentlyHopping = true
-    
     local currentPlayers = getPlayerCount()
-    
     if currentPlayers <= 3 then
         print(string.format("✅ Server OK: %d players", currentPlayers))
-        config._isCurrentlyHopping = false
         return
     end
     
+    config._isCurrentlyHopping = true
     lastHopAttempt = now
     hopping = true
     
-    print(string.format("🔄 CROWDED (%d players) - Bot %d initiating hop...", currentPlayers, config._botID))
-    
     task.spawn(function()
-        -- ✅ STAGGERED START: Each bot waits its turn
-        local myDelay = config._staggerDelay + math.random(0, 5)  -- Add 0-5s randomness
+        local myDelay = config._staggerDelay + math.random(0, 5)
         print(string.format("⏳ Waiting %ds before scanning (Bot %d)...", myDelay, config._botID))
         task.wait(myDelay)
         
-        local attempts = 0
-        local maxAttempts = 40
+        local maxRounds = 8
+        local success = false
         
-        while attempts < maxAttempts do
-            attempts = attempts + 1
-            config._totalHopAttempts = config._totalHopAttempts + 1
+        for round = 1, maxRounds do
+            if success then break end
             
-            if config._totalHopAttempts >= config.MAX_HOP_ATTEMPTS then
-                warn("🛑 Max hop attempts reached")
-                config._isCurrentlyHopping = false
-                hopping = false
-                return
-            end
-            
-            -- Recheck player count
-            currentPlayers = getPlayerCount()
-            if currentPlayers <= 3 then
-                print("✅ Player count acceptable!")
-                hopping = false
-                config._isCurrentlyHopping = false
-                return
-            end
-            
-            print(string.format("🎯 Bot %d: Attempt %d/%d", config._botID, attempts, maxAttempts))
-            
-            -- ✅ BUILD OWN SERVER POOL
-            local success, matchingServers = pcall(function()
+            -- Build fresh pool each round
+            local serverPool = {}
+            local poolSuccess = pcall(function()
                 local placeId = game.PlaceId
-                local myServers = {}
-                
-                local cursor = ""
-                local pagesScanned = 0
-                local maxPages = 1  -- Always page 1 only
-                -- No skip loop needed - always starts from page 1
                 task.wait(4)
                 
-                -- Now scan OUR pages
-                while pagesScanned < maxPages do
-                    pagesScanned = pagesScanned + 1
-                    
-                    local url = string.format(
-                        "https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&excludeFullGames=true&limit=100",
-                        placeId
-                    )
-                    if cursor ~= "" then
-                        url = url .. "&cursor=" .. cursor
-                    end
-                    
-                    local response = request({Url = url, Method = "GET"})
-                    
-                    if response.StatusCode ~= 200 then
-                        warn("❌ API error:", response.StatusCode)
-                        break
-                    end
-                    
-                    local data = HttpService:JSONDecode(response.Body)
-                    
-                    for _, server in ipairs(data.data) do
-                        local playing = server.playing
-                        local jobId = server.id
-                        
-                        if playing >= 1 and playing <= 2 and jobId ~= game.JobId then
-                            table.insert(myServers, {jobId = jobId, players = playing})
-                        end
-                    end
-                    
-                    cursor = data.nextPageCursor or ""
-                    if cursor == "" then break end
-                    
-                    task.wait(2.5)
+                local url = string.format(
+                    "https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&excludeFullGames=true&limit=100",
+                    placeId
+                )
+                
+                local response = request({ Url = url, Method = "GET" })
+                if response.StatusCode ~= 200 then
+                    warn("❌ API error:", response.StatusCode)
+                    return
                 end
                 
-                return myServers
+                local data = HttpService:JSONDecode(response.Body)
+                for _, server in ipairs(data.data) do
+                    if server.playing >= 1 and server.playing <= 2 and server.id ~= game.JobId then
+                        table.insert(serverPool, { jobId = server.id, players = server.playing })
+                    end
+                end
             end)
             
-            if success and matchingServers and #matchingServers > 0 then
-                -- ✅ Pick random from MY pool
-                local randomServer = matchingServers[math.random(1, #matchingServers)]
-                print(string.format("✅ Bot %d found %d servers, picked: %s (%d players)", 
-                    config._botID, #matchingServers, randomServer.jobId:sub(1, 12), randomServer.players))
+            if not poolSuccess or #serverPool == 0 then
+                warn(string.format("❌ Round %d: Failed to build pool or empty", round))
+                task.wait(10)
+                continue
+            end
+            
+            print(string.format("✅ Bot %d: Round %d pool has %d servers", config._botID, round, #serverPool))
+            
+            -- Try up to 5 servers from this pool
+            local maxRetries = 3
+            local tried = {}
+            
+            for attempt = 1, maxRetries do
+                -- Check if server is now OK
+                if getPlayerCount() <= 3 then
+                    print("✅ Server OK mid-hop, stopping")
+                    success = true
+                    break
+                end
+                
+                local available = {}
+                for i, srv in ipairs(serverPool) do
+                    if not tried[i] then
+                        table.insert(available, { index = i, data = srv })
+                    end
+                end
+                
+                if #available == 0 then
+                    warn(string.format("⚠️ Round %d pool exhausted, re-pooling...", round))
+                    break
+                end
+                
+                local pick = available[math.random(1, #available)]
+                tried[pick.index] = true
+                local target = pick.data
+                
+                print(string.format("🎯 Bot %d: Round %d Attempt %d/%d → %s (%d players)",
+                    config._botID, round, attempt, maxRetries, target.jobId:sub(1, 12), target.players))
                 
                 sendWebhook(
-                    "🔄 Server Hopping",
-                    string.format("Bot %d hopping to server with **%d players**", config._botID, randomServer.players),
+                    "🔄 Server Hop Attempt",
+                    string.format("Round **%d** Attempt **%d/%d** → server with **%d players**", round, attempt, maxRetries, target.players),
                     0xFFA500,
                     {
-                        { name = "👥 Target Players", value = tostring(randomServer.players), inline = true },
-                        { name = "🤖 Bot ID", value = tostring(config._botID), inline = true }
+                        { name = "🤖 Bot ID", value = tostring(config._botID), inline = true },
+                        { name = "👥 Target Players", value = tostring(target.players), inline = true },
+                        { name = "🔁 Round/Attempt", value = round .. "/" .. attempt, inline = true }
                     }
                 )
                 
-                task.wait(2)
-                
-                -- ✅ SINGLE TELEPORT METHOD (most reliable)
                 local tpSuccess = pcall(function()
-                    game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, randomServer.jobId)
+                    game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, target.jobId)
                 end)
                 
                 if tpSuccess then
-                    print("✅ Teleport initiated!")
-                    task.wait(30)  -- Wait for teleport
-                    
-                    -- If still here after 20s, try next
-                    if player and player.Parent then
-                        warn("⚠️ Teleport didn't work - trying next")
-                        task.wait(3)
+                    task.wait(30)
+                    if not player or not player.Parent then
+                        success = true
+                        return
                     else
-                        return  -- Success!
+                        warn(string.format("⚠️ Round %d Attempt %d: Teleport didn't complete", round, attempt))
+                        task.wait(30)
                     end
                 else
-                    warn("❌ Teleport failed")
-                    task.wait(5)
+                    warn(string.format("❌ Round %d Attempt %d: Failed", round, attempt))
+                    task.wait(30)
                 end
-            else
-                warn("❌ No servers found in my pool")
-                task.wait(5)
+            end
+            
+            if not success and round < maxRounds then
+                task.wait(15)
             end
         end
         
-        warn(string.format("⚠️ Bot %d exhausted attempts", config._botID))
+        if not success then
+            warn(string.format("⚠️ Bot %d: All rounds exhausted", config._botID))
+            sendWebhook(
+                "❌ Hop Failed",
+                string.format("Bot **%d** exhausted all rounds without success.", config._botID),
+                0xFF0000,
+                {
+                    { name = "🤖 Bot ID", value = tostring(config._botID), inline = true },
+                    { name = "🔁 Rounds", value = tostring(maxRounds), inline = true }
+                }
+            )
+        end
+        
         hopping = false
         config._isCurrentlyHopping = false
     end)
