@@ -1016,15 +1016,50 @@ local function serverHopIfCrowded()
         end
         
         if not success then
-            warn(string.format("⚠️ Bot %d: All rounds exhausted", config._botID))
+            warn(string.format("⚠️ Bot %d: Pool exhausted, trying ONE nuclear hop", config._botID))
+            
             sendWebhook(
-                "❌ Hop Failed",
-                string.format("Bot **%d** exhausted all rounds without success.", config._botID),
-                0xFF0000,
+                "☢️ Nuclear Hop (Last Chance)",
+                string.format("Bot **%d** exhausted pool. Attempting random server (1 try)...", config._botID),
+                0xFF9900,
                 {
                     { name = "🤖 Bot ID", value = tostring(config._botID), inline = true },
-                    { name = "🔁 Rounds", value = tostring(maxRounds), inline = true }
+                    { name = "🎲 Method", value = "Random PlaceId", inline = true },
+                    { name = "🔢 Attempts", value = "1", inline = true }
                 }
+            )
+            
+            task.wait(10)  -- Cooldown
+            
+            print(string.format("☢️ Bot %d: Nuclear attempt (1/1)", config._botID))
+            
+            local nuclearSuccess = pcall(function()
+                game:GetService("TeleportService"):Teleport(1537690962, player)
+            end)
+            
+            if nuclearSuccess then
+                task.wait(30)  -- Wait for teleport to complete
+                
+                -- If we're still here, it didn't work
+                if player and player.Parent then
+                    warn("💀 Nuclear hop failed")
+                else
+                    -- Probably worked, we're leaving
+                    hopping = false
+                    config._isCurrentlyHopping = false
+                    return
+                end
+            else
+                warn("❌ Nuclear hop errored")
+            end
+            
+            -- Failed everything - stay forever
+            warn(string.format("💀 Bot %d: All hops failed. Staying in server.", config._botID))
+            sendWebhook(
+                "💀 Hop Abandoned",
+                "Pool + nuclear failed. Remaining in current server.",
+                0x808080,
+                { name = "🤖 Bot", value = player.Name }
             )
         end
         
