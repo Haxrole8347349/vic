@@ -876,58 +876,6 @@ end
 -- Start the reconnect system
 task.delay(5, setupAutoReconnect)  -- Wait 5 seconds after script start
 
-local function forceUnfuckTeleport()
-    print("☢️ NUCLEAR TELEPORT RESET...")
-    
-    -- Step 1: Kill EVERY teleport-related connection (not just InitFailed)
-    pcall(function()
-        if getconnections then
-            local TeleportService = game:GetService("TeleportService")
-            
-            -- Nuke ALL teleport signals
-            for _, signal in pairs({"TeleportInitFailed", "LocalPlayerArrivedFromTeleport"}) do
-                pcall(function()
-                    for _, conn in pairs(getconnections(TeleportService[signal])) do
-                        pcall(function() 
-                            conn:Disable()
-                            conn:Disconnect()  -- force disconnect too
-                        end)
-                    end
-                end)
-            end
-        end
-    end)
-    
-    -- Step 2: Force-cancel any pending teleport via dummy call
-    pcall(function()
-        game:GetService("TeleportService"):SetTeleportGui(Instance.new("ScreenGui"))
-        -- Immediately fire a dummy teleport to SAME place to reset queue
-        game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId)
-        task.wait(0.1)
-        -- Now kill that too
-        game:GetService("TeleportService"):SetTeleportGui(Instance.new("ScreenGui"))
-    end)
-    
-    -- Step 3: Destroy ALL CoreGui teleport/loading elements
-    pcall(function()
-        for _, gui in pairs(game:GetService("CoreGui"):GetChildren()) do
-            local name = gui.Name:lower()
-            if name:find("teleport") or name:find("loading") or name:find("popup") then
-                gui:Destroy()
-            end
-        end
-    end)
-    
-    -- Step 4: Force engine sync (longer wait)
-    for i = 1, 10 do  -- doubled from 5
-        game:GetService("RunService").Heartbeat:Wait()
-    end
-    
-    task.wait(5)  -- LONGER backend sync (was 3s)
-    
-    print("✅ Nuclear reset complete")
-end
-
 config.MAX_HOP_ATTEMPTS = 30
 config._hopAttempts = config._hopAttempts or 0
 config._totalHopAttempts = config._totalHopAttempts or 0
@@ -1043,43 +991,23 @@ local function serverHopIfCrowded()
                     }
                 )
                 
-                -- Store current job before teleport
-                local currentJobId = game.JobId
-                
                 local tpSuccess = pcall(function()
                     game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, target.jobId)
                 end)
                 
                 if tpSuccess then
                     task.wait(30)
-                    
-                    -- ✅ CHECK IF STUCK
-                    if player and player.Parent and game.JobId == currentJobId then
-                        warn(string.format("⚠️ Round %d Attempt %d: TELEPORT STUCK - UNFUCKING NOW", round, attempt))
-                        
-                        -- ✅ UNFUCK IT
-                        forceUnfuckTeleport()
-                        
-                        -- Continue to next attempt (the unfuck clears the state for the next try)
-                        warn(string.format("🔁 Unfuck complete, moving to next server..."))
-                        
-                    elseif not player or not player.Parent then
-                        -- Teleport worked!
-                        print("✅ TELEPORT SUCCESS - Player left game")
+                    if not player or not player.Parent then
                         success = true
                         return
                     else
-                        warn(string.format("⚠️ Round %d Attempt %d: Still in game but different JobId?", round, attempt))
+                        warn(string.format("⚠️ Round %d Attempt %d: Teleport didn't complete", round, attempt))
+                        task.wait(30)
                     end
                 else
-                    warn(string.format("❌ Round %d Attempt %d: Teleport call failed immediately", round, attempt))
-                    
-                    -- Unfuck even if call failed
-                    forceUnfuckTeleport()
+                    warn(string.format("❌ Round %d Attempt %d: Failed", round, attempt))
+                    task.wait(30)
                 end
-                
-                -- Small cooldown between attempts
-                task.wait(5)
             end
             
             if not success and round < maxRounds then
@@ -1088,20 +1016,15 @@ local function serverHopIfCrowded()
         end
         
         if not success then
-            warn(string.format("💀 Bot %d: All hop attempts exhausted", config._botID))
-            
+            warn(string.format("💀 Bot %d: All attempts exhausted. Staying in server.", config._botID))
             sendWebhook(
-                "💀 Hop Failed - Staying Put",
-                string.format("Exhausted all hop attempts. Bot **%s** will remain in this server and continue detecting.", player.Name),
+                "💀 Hop Abandoned",
+                "All attempts exhausted. Remaining in current server.",
                 0x808080,
                 {
-                    { name = "🤖 Bot", value = player.Name, inline = true },
-                    { name = "👥 Current Players", value = tostring(getPlayerCount()), inline = true },
-                    { name = "📍 Status", value = "Still Active", inline = true }
+                    { name = "🤖 Bot", value = player.Name, inline = true }
                 }
             )
-            
-            print("📌 Staying in current server - detection still active")
         end
         
         hopping = false
