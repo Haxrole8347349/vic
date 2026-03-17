@@ -876,6 +876,42 @@ end
 -- Start the reconnect system
 task.delay(5, setupAutoReconnect)  -- Wait 5 seconds after script start
 
+-- NUCLEAR UNFUCK - Forces teleport state clear using executor APIs
+local function forceUnfuckTeleport()
+    print("☢️ Clearing stuck teleport state...")
+    
+    -- Step 1: Kill all pending teleport connections (PERMANENT)
+    pcall(function()
+        if getconnections then
+            for _, conn in pairs(getconnections(game:GetService("TeleportService").TeleportInitFailed)) do
+                pcall(function() conn:Disable() end)
+            end
+        end
+    end)
+    
+    -- Step 2: Nuke the teleport GUI with fresh instance (forces full reset)
+    pcall(function()
+        game:GetService("TeleportService"):SetTeleportGui(Instance.new("ScreenGui"))
+    end)
+    
+    -- Step 3: Destroy any lingering teleport/loading GUIs in CoreGui
+    pcall(function()
+        for _, gui in pairs(game:GetService("CoreGui"):GetChildren()) do
+            if gui.Name:lower():find("teleport") or gui.Name:lower():find("loading") then
+                gui:Destroy()
+            end
+        end
+    end)
+    
+    -- Step 4: Yield frames so engine processes the cleanup
+    for i = 1, 5 do
+        game:GetService("RunService").Heartbeat:Wait()
+    end
+    task.wait(3)
+    
+    print("✅ Teleport state cleared")
+end
+
 config.MAX_HOP_ATTEMPTS = 30
 config._hopAttempts = config._hopAttempts or 0
 config._totalHopAttempts = config._totalHopAttempts or 0
@@ -991,23 +1027,43 @@ local function serverHopIfCrowded()
                     }
                 )
                 
+                -- Store current job before teleport
+                local currentJobId = game.JobId
+                
                 local tpSuccess = pcall(function()
                     game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, target.jobId)
                 end)
                 
                 if tpSuccess then
                     task.wait(30)
-                    if not player or not player.Parent then
+                    
+                    -- ✅ CHECK IF STUCK
+                    if player and player.Parent and game.JobId == currentJobId then
+                        warn(string.format("⚠️ Round %d Attempt %d: TELEPORT STUCK - UNFUCKING NOW", round, attempt))
+                        
+                        -- ✅ UNFUCK IT
+                        forceUnfuckTeleport()
+                        
+                        -- Continue to next attempt (the unfuck clears the state for the next try)
+                        warn(string.format("🔁 Unfuck complete, moving to next server..."))
+                        
+                    elseif not player or not player.Parent then
+                        -- Teleport worked!
+                        print("✅ TELEPORT SUCCESS - Player left game")
                         success = true
                         return
                     else
-                        warn(string.format("⚠️ Round %d Attempt %d: Teleport didn't complete", round, attempt))
-                        task.wait(30)
+                        warn(string.format("⚠️ Round %d Attempt %d: Still in game but different JobId?", round, attempt))
                     end
                 else
-                    warn(string.format("❌ Round %d Attempt %d: Failed", round, attempt))
-                    task.wait(30)
+                    warn(string.format("❌ Round %d Attempt %d: Teleport call failed immediately", round, attempt))
+                    
+                    -- Unfuck even if call failed
+                    forceUnfuckTeleport()
                 end
+                
+                -- Small cooldown between attempts
+                task.wait(5)
             end
             
             if not success and round < maxRounds then
@@ -1016,51 +1072,20 @@ local function serverHopIfCrowded()
         end
         
         if not success then
-            warn(string.format("⚠️ Bot %d: Pool exhausted, trying ONE nuclear hop", config._botID))
+            warn(string.format("💀 Bot %d: All hop attempts exhausted", config._botID))
             
             sendWebhook(
-                "☢️ Nuclear Hop (Last Chance)",
-                string.format("Bot **%d** exhausted pool. Attempting random server (1 try)...", config._botID),
-                0xFF9900,
+                "💀 Hop Failed - Staying Put",
+                string.format("Exhausted all hop attempts. Bot **%s** will remain in this server and continue detecting.", player.Name),
+                0x808080,
                 {
-                    { name = "🤖 Bot ID", value = tostring(config._botID), inline = true },
-                    { name = "🎲 Method", value = "Random PlaceId", inline = true },
-                    { name = "🔢 Attempts", value = "1", inline = true }
+                    { name = "🤖 Bot", value = player.Name, inline = true },
+                    { name = "👥 Current Players", value = tostring(getPlayerCount()), inline = true },
+                    { name = "📍 Status", value = "Still Active", inline = true }
                 }
             )
             
-            task.wait(10)  -- Cooldown
-            
-            print(string.format("☢️ Bot %d: Nuclear attempt (1/1)", config._botID))
-            
-            local nuclearSuccess = pcall(function()
-                game:GetService("TeleportService"):Teleport(1537690962, player)
-            end)
-            
-            if nuclearSuccess then
-                task.wait(30)  -- Wait for teleport to complete
-                
-                -- If we're still here, it didn't work
-                if player and player.Parent then
-                    warn("💀 Nuclear hop failed")
-                else
-                    -- Probably worked, we're leaving
-                    hopping = false
-                    config._isCurrentlyHopping = false
-                    return
-                end
-            else
-                warn("❌ Nuclear hop errored")
-            end
-            
-            -- Failed everything - stay forever
-            warn(string.format("💀 Bot %d: All hops failed. Staying in server.", config._botID))
-            sendWebhook(
-                "💀 Hop Abandoned",
-                "Pool + nuclear failed. Remaining in current server.",
-                0x808080,
-                { name = "🤖 Bot", value = player.Name }
-            )
+            print("📌 Staying in current server - detection still active")
         end
         
         hopping = false
