@@ -1001,12 +1001,15 @@ local function serverHopIfCrowded()
                         success = true
                         return
                     else
-                        warn(string.format("⚠️ Round %d Attempt %d: Teleport didn't complete", round, attempt))
-                        task.wait(30)
+                        warn(string.format("⚠️ Round %d Attempt %d: Teleport didn't complete, clearing state...", round, attempt))
+                        pcall(function() TeleportService:TeleportCancel() end)
+                        task.wait(1)
+                        pcall(function() TeleportService:Teleport(game.PlaceId) end)
+                        return
                     end
                 else
-                    warn(string.format("❌ Round %d Attempt %d: Failed", round, attempt))
-                    task.wait(30)
+                    warn(string.format("❌ Round %d Attempt %d: Failed, trying next...", round, attempt))
+                    task.wait(5)
                 end
             end
             
