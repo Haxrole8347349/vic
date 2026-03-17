@@ -876,40 +876,56 @@ end
 -- Start the reconnect system
 task.delay(5, setupAutoReconnect)  -- Wait 5 seconds after script start
 
--- NUCLEAR UNFUCK - Forces teleport state clear using executor APIs
 local function forceUnfuckTeleport()
-    print("☢️ Clearing stuck teleport state...")
+    print("☢️ NUCLEAR TELEPORT RESET...")
     
-    -- Step 1: Kill all pending teleport connections (PERMANENT)
+    -- Step 1: Kill EVERY teleport-related connection (not just InitFailed)
     pcall(function()
         if getconnections then
-            for _, conn in pairs(getconnections(game:GetService("TeleportService").TeleportInitFailed)) do
-                pcall(function() conn:Disable() end)
+            local TeleportService = game:GetService("TeleportService")
+            
+            -- Nuke ALL teleport signals
+            for _, signal in pairs({"TeleportInitFailed", "LocalPlayerArrivedFromTeleport"}) do
+                pcall(function()
+                    for _, conn in pairs(getconnections(TeleportService[signal])) do
+                        pcall(function() 
+                            conn:Disable()
+                            conn:Disconnect()  -- force disconnect too
+                        end)
+                    end
+                end)
             end
         end
     end)
     
-    -- Step 2: Nuke the teleport GUI with fresh instance (forces full reset)
+    -- Step 2: Force-cancel any pending teleport via dummy call
     pcall(function()
+        game:GetService("TeleportService"):SetTeleportGui(Instance.new("ScreenGui"))
+        -- Immediately fire a dummy teleport to SAME place to reset queue
+        game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId)
+        task.wait(0.1)
+        -- Now kill that too
         game:GetService("TeleportService"):SetTeleportGui(Instance.new("ScreenGui"))
     end)
     
-    -- Step 3: Destroy any lingering teleport/loading GUIs in CoreGui
+    -- Step 3: Destroy ALL CoreGui teleport/loading elements
     pcall(function()
         for _, gui in pairs(game:GetService("CoreGui"):GetChildren()) do
-            if gui.Name:lower():find("teleport") or gui.Name:lower():find("loading") then
+            local name = gui.Name:lower()
+            if name:find("teleport") or name:find("loading") or name:find("popup") then
                 gui:Destroy()
             end
         end
     end)
     
-    -- Step 4: Yield frames so engine processes the cleanup
-    for i = 1, 5 do
+    -- Step 4: Force engine sync (longer wait)
+    for i = 1, 10 do  -- doubled from 5
         game:GetService("RunService").Heartbeat:Wait()
     end
-    task.wait(3)
     
-    print("✅ Teleport state cleared")
+    task.wait(5)  -- LONGER backend sync (was 3s)
+    
+    print("✅ Nuclear reset complete")
 end
 
 config.MAX_HOP_ATTEMPTS = 30
@@ -986,7 +1002,7 @@ local function serverHopIfCrowded()
             print(string.format("✅ Bot %d: Round %d pool has %d servers", config._botID, round, #serverPool))
             
             -- Try up to 5 servers from this pool
-            local maxRetries = 5
+            local maxRetries = 3
             local tried = {}
             
             for attempt = 1, maxRetries do
