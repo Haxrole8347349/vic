@@ -140,7 +140,7 @@ local function generateBotID()
 end
 
 config._botID = config._botID or generateBotID()
-config._staggerDelay = (config._botID % 60)*2  -- 0-30 second spread
+config._staggerDelay = (config._botID % 60)  -- 0-30 second spread
 print(string.format("🤖 Bot ID: %d | Stagger Delay: %ds", config._botID, config._staggerDelay))
 
 local function periodicCleanup()
